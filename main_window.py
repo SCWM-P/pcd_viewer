@@ -2,6 +2,7 @@ import os
 import sys
 import datetime
 import traceback
+import cv2
 from PyQt6.QtWidgets import (QMainWindow, QVBoxLayout, QHBoxLayout, QWidget,
                              QFileDialog, QSplitter, QStatusBar)
 from PyQt6.QtCore import Qt
@@ -14,6 +15,7 @@ from .ui.screenshot_dialog import ScreenshotDialog
 from .utils.point_cloud_handler import PointCloudHandler
 from .utils.visualization import VisualizationManager
 from .utils.stylesheet_manager import StylesheetManager
+from .ui.line_detection_dialog import LineDetectionDialog
 
 
 class PCDViewerWindow(MainWindow):
@@ -227,3 +229,25 @@ class PCDViewerWindow(MainWindow):
             slice_info = (len(self.current_slice_cloud.points), None)
             # 只更新切片部分信息
             self.sidebar_builder.slice_info_label.setText(f"当前切片: {slice_info[0]} 点")
+
+    def show_line_detection(self):
+        """显示直线检测对话框"""
+        if self.plotter is None:
+            self.statusBar.showMessage("请先加载点云")
+            return
+
+        try:
+            # 截取当前视图
+            screenshot = self.plotter.screenshot(return_img=True)
+
+            # 创建对话框
+            dialog = LineDetectionDialog(self)
+
+            # OpenCV图像是BGR格式，需要转换
+            screenshot_bgr = cv2.cvtColor(screenshot, cv2.COLOR_RGB2BGR)
+            dialog.set_image(screenshot_bgr)
+
+            # 显示对话框
+            dialog.exec()
+        except Exception as e:
+            self.statusBar.showMessage(f"直线检测错误: {str(e)}")

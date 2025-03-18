@@ -60,4 +60,11 @@ class ToolbarBuilder:
         top_view_action.triggered.connect(lambda: self.parent.plotter.view_xy())
         self.toolbar.addAction(top_view_action)
 
+        self.toolbar.addSeparator()
+
+        # 添加直线检测按钮
+        line_detection_action = QAction(qta.icon('fa5s.ruler', color=icon_color), "直线检测", self.parent)
+        line_detection_action.triggered.connect(self.parent.show_line_detection)
+        self.toolbar.addAction(line_detection_action)
+
         return self.toolbar
