@@ -1,0 +1,8 @@
+PyQt6
+pyvista
+pyvistaqt
+open3d
+numpy
+opencv-python
+qtawesome
+Pillow
