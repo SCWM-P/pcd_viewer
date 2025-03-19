@@ -21,7 +21,7 @@ from .ui.line_detection_dialog import LineDetectionDialog
 class PCDViewerWindow(MainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("PCD Viewer with Slicing")
+        self.setWindowTitle("PCD Viewer")
         self.resize(1200, 800)
 
         # --- 初始化变量 ---
@@ -30,6 +30,7 @@ class PCDViewerWindow(MainWindow):
         self.pcd_actor = None  # 点云渲染器actor
         self.pcd_bounds = None  # 点云边界
         self.is_sidebar_visible = True  # 侧边栏可见性状态
+        self.current_file_name = ""  # 当前文件名
 
         # --- 初始化UI构建器 ---
         self.sidebar_builder = SidebarBuilder(self)
@@ -113,6 +114,9 @@ class PCDViewerWindow(MainWindow):
         """加载点云文件"""
         try:
             self.statusBar.showMessage(f"正在加载: {os.path.basename(file_path)}...")
+
+            # 更新当前文件名
+            self.current_file_name = os.path.basename(file_path)
 
             # 使用PointCloudHandler加载点云
             self.point_cloud, self.pcd_bounds, point_count = PointCloudHandler.load_from_file(file_path)
@@ -240,14 +244,20 @@ class PCDViewerWindow(MainWindow):
             # 截取当前视图
             screenshot = self.plotter.screenshot(return_img=True)
 
+            # 使用当前文件名
+            file_name = self.current_file_name if self.current_file_name else "untitled"
+
             # 创建对话框
-            dialog = LineDetectionDialog(self)
+            dialog = LineDetectionDialog(self, file_name)
+            dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
             # OpenCV图像是BGR格式，需要转换
             screenshot_bgr = cv2.cvtColor(screenshot, cv2.COLOR_RGB2BGR)
             dialog.set_image(screenshot_bgr)
 
-            # 显示对话框
-            dialog.exec()
+            # 显示为非模态窗口
+            dialog.show()
         except Exception as e:
             self.statusBar.showMessage(f"直线检测错误: {str(e)}")
+            import traceback
+            traceback.print_exc()

@@ -1,1 +1,3 @@
 samples/one_floor.pcd
+.idea/
+__pycache__/

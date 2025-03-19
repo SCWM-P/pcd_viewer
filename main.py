@@ -21,6 +21,6 @@ def main():
 
 
 sys.excepthook = exception_hook
-
-if __name__ == "__main__":
+debug_mode = True
+if __name__ == "__main__" or debug_mode == True:
     main()
