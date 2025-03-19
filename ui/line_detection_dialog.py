@@ -269,7 +269,7 @@ class LineDetectionDialog(QWidget):
         self.original_image = None
         self.result_image = None
         self.detected_lines = []
-        self.cloud_file_name = os.path.basename(cloud_file_name) if cloud_file_name else "未命名"
+        self.cloud_file_name = cloud_file_name if cloud_file_name else "未命名"
 
         # 是否连续检测
         self.continuous_detection = False
@@ -283,18 +283,27 @@ class LineDetectionDialog(QWidget):
     def setup_ui(self):
         """设置界面"""
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)  # 移除边距以最大化空间利用
 
-        # 上部分：图像显示和控制
-        top_layout = QHBoxLayout()
+        # 创建水平分割器
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        main_layout.addWidget(self.main_splitter)
 
-        # 图像显示区 - 使用新的图层显示控件
+        # 创建左侧图像显示区容器
+        image_container = QWidget()
+        image_layout = QVBoxLayout(image_container)
+        image_layout.setContentsMargins(5, 5, 5, 5)
+
+        # 图像显示控件
         self.image_display = LayeredImageDisplay()
-        top_layout.addWidget(self.image_display)
+        image_layout.addWidget(self.image_display)
 
-        # 右侧控制面板
+        # 创建右侧控制面板容器
         control_panel = QWidget()
         control_layout = QVBoxLayout(control_panel)
+        control_layout.setContentsMargins(5, 5, 5, 5)
 
+        # 添加控制面板组件
         # 算法选择
         algo_group = QGroupBox("算法选择")
         algo_layout = QVBoxLayout(algo_group)
@@ -309,13 +318,11 @@ class LineDetectionDialog(QWidget):
 
         # 霍夫变换参数页
         self.hough_param_widget = HoughParametersWidget()
-        # 修改连接，通过检查连续检测状态决定是否立即更新
         self.hough_param_widget.paramChanged.connect(self.check_continuous_detection)
         self.param_tabs.addTab(self.hough_param_widget, "霍夫变换")
 
         # RANSAC参数页
         self.ransac_param_widget = RANSACParametersWidget()
-        # 修改连接，通过检查连续检测状态决定是否立即更新
         self.ransac_param_widget.paramChanged.connect(self.check_continuous_detection)
         self.param_tabs.addTab(self.ransac_param_widget, "RANSAC")
 
@@ -364,7 +371,7 @@ class LineDetectionDialog(QWidget):
         self.detect_btn.clicked.connect(self.detect_lines)
         detect_layout.addWidget(self.detect_btn)
 
-        # 线条颜色
+        # 线条颜色和粗细
         line_color_layout = QHBoxLayout()
         line_color_layout.addWidget(QLabel("线条颜色:"))
         self.line_color_combo = QComboBox()
@@ -373,7 +380,6 @@ class LineDetectionDialog(QWidget):
         line_color_layout.addWidget(self.line_color_combo)
         detect_layout.addLayout(line_color_layout)
 
-        # 线条粗细
         line_width_layout = QHBoxLayout()
         line_width_layout.addWidget(QLabel("线条粗细:"))
         self.line_width_spin = QSpinBox()
@@ -403,8 +409,59 @@ class LineDetectionDialog(QWidget):
         self.close_btn.clicked.connect(self.close)
         control_layout.addWidget(self.close_btn)
 
-        top_layout.addWidget(control_panel)
-        main_layout.addLayout(top_layout)
+        # 添加到分割器中
+        self.main_splitter.addWidget(image_container)
+        self.main_splitter.addWidget(control_panel)
+
+        # 设置初始分割比例 - 可以根据需要调整这些数值
+        # 例如 [700, 200] 表示左侧占700像素，右侧占200像素
+        self.main_splitter.setSizes([700, 200])
+
+        # 添加调整比例的按钮/功能
+        self.add_ratio_control()
+
+    def add_ratio_control(self):
+        """添加比例控制功能"""
+        # 创建比例预设按钮组
+        ratio_group = QGroupBox("布局比例")
+        ratio_layout = QHBoxLayout(ratio_group)
+
+        # 75:25 比例按钮
+        ratio_75_25_btn = QPushButton("75:25")
+        ratio_75_25_btn.clicked.connect(lambda: self.set_splitter_ratio(0.75))
+        ratio_layout.addWidget(ratio_75_25_btn)
+
+        # 70:30 比例按钮
+        ratio_70_30_btn = QPushButton("70:30")
+        ratio_70_30_btn.clicked.connect(lambda: self.set_splitter_ratio(0.70))
+        ratio_layout.addWidget(ratio_70_30_btn)
+
+        # 60:40 比例按钮
+        ratio_60_40_btn = QPushButton("60:40")
+        ratio_60_40_btn.clicked.connect(lambda: self.set_splitter_ratio(0.60))
+        ratio_layout.addWidget(ratio_60_40_btn)
+
+        # 50:50 比例按钮
+        ratio_50_50_btn = QPushButton("50:50")
+        ratio_50_50_btn.clicked.connect(lambda: self.set_splitter_ratio(0.50))
+        ratio_layout.addWidget(ratio_50_50_btn)
+
+        # 将比例控制组添加到右侧面板顶部
+        control_panel = self.main_splitter.widget(1)
+        control_layout = control_panel.layout()
+        control_layout.insertWidget(0, ratio_group)
+
+    def set_splitter_ratio(self, left_ratio):
+        """
+        设置分割器左右比例
+
+        Args:
+            left_ratio (float): 左侧所占比例 (0.0-1.0)
+        """
+        total_width = self.main_splitter.width()
+        left_width = int(total_width * left_ratio)
+        right_width = total_width - left_width
+        self.main_splitter.setSizes([left_width, right_width])
 
     def check_continuous_detection(self):
         """根据连续检测状态决定是否立即更新"""
