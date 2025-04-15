@@ -4,10 +4,11 @@ import datetime
 import traceback
 import cv2
 from PyQt6.QtWidgets import (QMainWindow, QVBoxLayout, QHBoxLayout, QWidget,
-                             QFileDialog, QSplitter, QStatusBar)
+                             QFileDialog, QSplitter, QStatusBar, QMessageBox)
 from PyQt6.QtCore import Qt
 from pyvistaqt import QtInteractor, MainWindow
 
+from .ui.batch_slice_viewer_window import DEBUG_MODE
 # 导入自定义模块
 from .ui.sidebar_builder import SidebarBuilder
 from .ui.toolbar_builder import ToolbarBuilder
@@ -16,7 +17,7 @@ from .utils.point_cloud_handler import PointCloudHandler
 from .utils.visualization import VisualizationManager
 from .utils.stylesheet_manager import StylesheetManager
 from .ui.line_detection_dialog import LineDetectionDialog
-
+from .ui.batch_slice_viewer_window import BatchSliceViewerWindow
 
 class PCDViewerWindow(MainWindow):
     def __init__(self, parent=None):
@@ -105,8 +106,9 @@ class PCDViewerWindow(MainWindow):
 
     def open_pcd_file(self):
         """打开PCD文件对话框"""
-        file_path, _ = QFileDialog.getOpenFileName(self, "选择PCD文件", "",
-                                                   "点云文件 (*.pcd *.ply *.xyz *.pts);;所有文件 (*)")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择PCD文件", "", "点云文件 (*.pcd *.ply *.xyz *.pts);;所有文件 (*)"
+        )
         if file_path:
             self.load_pcd_file(file_path)
 
@@ -115,7 +117,7 @@ class PCDViewerWindow(MainWindow):
         try:
             self.statusBar.showMessage(f"正在加载: {os.path.basename(file_path)}...")
 
-            # 更新当前文件名
+            # --->>> Ensure this line exists and works <<<---
             self.current_file_name = os.path.basename(file_path)
 
             # 使用PointCloudHandler加载点云
@@ -125,7 +127,7 @@ class PCDViewerWindow(MainWindow):
             self.statusBar.showMessage(f"已加载: {os.path.basename(file_path)}, {point_count} 点")
 
             # 更新可视化
-            self.update_visualization()
+            self.update_visualization()  # Update main window view
 
             # 更新信息面板
             self.update_info_panel()
@@ -135,6 +137,7 @@ class PCDViewerWindow(MainWindow):
             self.statusBar.showMessage(f"加载文件失败: {str(e)}")
             self.point_cloud = None
             self.pcd_bounds = None
+            self.current_file_name = ""  # Reset filename on failure
             return False
 
     def update_visualization(self):
@@ -261,3 +264,49 @@ class PCDViewerWindow(MainWindow):
             self.statusBar.showMessage(f"直线检测错误: {str(e)}")
             import traceback
             traceback.print_exc()
+
+    def show_batch_slice_viewer(self):
+        """显示批量切片查看器窗口"""
+        if self.point_cloud is None or self.point_cloud.n_points == 0:
+            self.statusBar.showMessage("请先加载有效的点云文件")
+            QMessageBox.warning(self, "无点云数据", "需要加载点云后才能进行批量切片。")
+            return
+
+        source_filename = self.current_file_name if self.current_file_name else "From Active Session"
+
+        try:
+            # --- FIX: Create window without setting parent=self ---
+            # Check if an instance exists to avoid multiple windows (Keep this logic)
+            # Use a more robust check like checking if the attribute exists AND the window is valid
+            instance_exists = hasattr(self, 'batch_slicer_window_instance') and self.batch_slicer_window_instance is not None
+            if instance_exists:
+                 try:
+                     # Check if the window was closed
+                     if not self.batch_slicer_window_instance.isVisible():
+                          instance_exists = False
+                 except RuntimeError: # Window might have been deleted
+                     instance_exists = False
+
+            if not instance_exists:
+                if DEBUG_MODE: print("DEBUG: Creating new BatchSliceViewerWindow instance (no parent).")
+                # Create WITHOUT parent=self
+                self.batch_slicer_window_instance = BatchSliceViewerWindow(
+                    self.point_cloud,
+                    source_filename=source_filename
+                    # parent=self # Removed parent
+                )
+                # Still set DeleteOnClose if you want automatic cleanup when closed
+                self.batch_slicer_window_instance.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+                self.batch_slicer_window_instance.show()
+            else:
+                if DEBUG_MODE: print("DEBUG: Activating existing BatchSliceViewerWindow instance.")
+                self.batch_slicer_window_instance.activateWindow()
+                self.batch_slicer_window_instance.raise_()
+            # --- End FIX ---
+
+            self.statusBar.showMessage("批量切片查看器已打开/激活")
+
+        except Exception as e:
+            self.statusBar.showMessage(f"打开批量切片查看器时出错: {str(e)}")
+            QMessageBox.critical(self, "错误", f"无法打开批量切片查看器:\n{str(e)}")
+            if DEBUG_MODE: traceback.print_exc()

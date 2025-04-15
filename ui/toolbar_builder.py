@@ -67,4 +67,12 @@ class ToolbarBuilder:
         line_detection_action.triggered.connect(self.parent.show_line_detection)
         self.toolbar.addAction(line_detection_action)
 
+        self.toolbar.addSeparator()
+
+        # 添加批量切片按钮
+        batch_slice_action = QAction(qta.icon('fa5s.layer-group', color=icon_color), "批量切片", self.parent)
+        # --- > Ensure this matches the method name in PCDViewerWindow < ---
+        batch_slice_action.triggered.connect(self.parent.show_batch_slice_viewer)
+        self.toolbar.addAction(batch_slice_action)
+
         return self.toolbar

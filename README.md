@@ -1,7 +1,7 @@
 # PCD Viewer
 
 ![PCD Viewer Banner](https://img.shields.io/badge/PCD%20Viewer-1.0.0-blue)
-![Python](https://img.shields.io/badge/python-3.8%2B-brightgreen)
+![Python](https://img.shields.io/badge/python-3.10%2B-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 **PCD Viewer** 

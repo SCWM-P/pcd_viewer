@@ -1,4 +1,5 @@
 import sys
+from . import compatibility # Please do not delete this line
 from PyQt6.QtWidgets import QApplication
 from .main_window import PCDViewerWindow
 
