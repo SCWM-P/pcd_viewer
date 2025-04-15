@@ -59,7 +59,7 @@ cd pcd-viewer
 
 2. **创建虚拟环境**
 ```bash
-conda create -n pcd-viewer python=3.10
+conda create -n pcd-viewer python=3.12
 conda activate pcd-viewer
 ```
 
