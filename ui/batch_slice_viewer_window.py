@@ -264,7 +264,6 @@ class BatchSliceViewerWindow(QWidget):
         self.setup_ui()
         if DEBUG_MODE: print("DEBUG: BatchSliceViewerWindow __init__ finished.")
 
-    # ... (setup_ui remains the same as previous correct version) ...
     def setup_ui(self):
         if DEBUG_MODE: print("DEBUG: BatchSliceViewerWindow setup_ui started.")
         main_layout = QHBoxLayout(self)
@@ -389,8 +388,6 @@ class BatchSliceViewerWindow(QWidget):
         self.splitter.setSizes([250, 600, 250])
         if DEBUG_MODE: print("DEBUG: BatchSliceViewerWindow setup_ui finished.")
 
-
-    # ... (_initialize_plotter_view remains the same as previous correct version) ...
     def _initialize_plotter_view(self):
         """Initialize the plotter view appearance after a short delay."""
         if self.plotter is None:
@@ -414,18 +411,6 @@ class BatchSliceViewerWindow(QWidget):
             except:
                  pass
 
-
-    # ... (_start_slice_processing, _update_progress, _cancel_processing,
-    #      _collect_slice_data, _add_thumbnail_item, _processing_finished,
-    #      _update_3d_view_presentation, _on_selection_changed,
-    #      _export_bitmaps, _export_selected_bitmaps, _export_all_data,
-    #      closeEvent) methods remain the same as the previous correct version ...
-    # Ensure _add_thumbnail_item, _processing_finished, _update_3d_view_presentation,
-    # _export_bitmaps, etc. are using the corrected logic from the previous response.
-    # (Copying them all again would make this response extremely long,
-    # please refer to the previous response for their correct implementations,
-    # the only change needed was in SliceProcessingThread.run for QImage)
-    # --- Placeholder for brevity ---
     def _start_slice_processing(self):
         if DEBUG_MODE: print("DEBUG: _start_slice_processing called.")
         if self.plotter is None:
