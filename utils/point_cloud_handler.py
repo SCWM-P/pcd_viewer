@@ -2,7 +2,9 @@ import open3d as o3d
 import numpy as np
 import pyvista as pv
 import os
-
+import pandas as pd
+import traceback
+from .. import DEBUG_MODE
 
 class PointCloudHandler:
     """处理点云数据的加载、切片和基本操作"""
@@ -18,20 +20,99 @@ class PointCloudHandler:
         Returns:
             tuple: (pv.PolyData, 边界, 点数量)
         """
+        file_ext = os.path.splitext(file_path)[1].lower()
+
         try:
-            pcd = o3d.io.read_point_cloud(file_path)
-            points = np.asarray(pcd.points)
+            points = None
             colors = None
-            if pcd.has_colors():
-                colors = np.asarray(pcd.colors)
+            point_cloud = None
 
-            point_cloud = pv.PolyData(points, faces=None)
-            if colors is not None:
-                point_cloud['colors'] = colors
+            if file_ext in ['.pcd', '.ply', '.pts']:  # Original formats
+                pcd = o3d.io.read_point_cloud(file_path)
+                if not pcd.has_points():
+                    print(f"Warning: 文件不包含点: {file_path}")
+                    return None, None, 0
 
-            return point_cloud, point_cloud.bounds, len(points)
+                points = np.asarray(pcd.points)
+                if pcd.has_colors():
+                    colors = np.asarray(pcd.colors)
+
+            elif file_ext in ['.txt', '.xyz']:
+                if DEBUG_MODE: print(f"DEBUG: Loading TXT file: {file_path}")
+                try:
+                    df = pd.read_csv(file_path, sep=r'\s+', header=None, usecols=[0, 1, 2, 3, 4, 5],
+                                     names=['x', 'y', 'z', 'r', 'g', 'b'],
+                                     on_bad_lines='warn',
+                                     engine='python',
+                                     comment='#')  # Add comment handling if needed
+
+                    df.dropna(inplace=True)
+                    if df.empty:
+                        print(f"Warning: TXT 文件解析后为空或无有效数据行: {file_path}")
+                        return None, None, 0
+
+                    points = df[['x', 'y', 'z']].values.astype(np.float64)
+                    colors_raw = df[['r', 'g', 'b']].values
+
+                    # Check if colors look like 0-1 float or 0-255 int
+                    if np.any(colors_raw > 1.0):  # Heuristic: if any value > 1, assume 0-255
+                        if DEBUG_MODE: print("DEBUG: Assuming TXT colors are 0-255, converting to 0-1 float.")
+                        colors = colors_raw.astype(np.float64) / 255.0
+                    else:
+                        if DEBUG_MODE: print("DEBUG: Assuming TXT colors are already 0-1 float.")
+                        colors = colors_raw.astype(np.float64)
+
+                    colors = np.clip(colors, 0.0, 1.0)
+
+                    if DEBUG_MODE: print(f"DEBUG: Loaded {len(points)} points from TXT.")
+
+                except pd.errors.EmptyDataError:
+                    print(f"Warning: TXT 文件是空的: {file_path}")
+                    return None, None, 0
+                except ValueError as ve:
+                    # Catch errors like wrong number of columns if usecols fails etc.
+                    print(f"ERROR: 解析 TXT 文件时值错误 (可能列数不匹配或类型错误): {ve} in {file_path}")
+                    if DEBUG_MODE: traceback.print_exc()
+                    raise RuntimeError(f"解析 TXT 文件值错误: {ve}")
+                except Exception as parse_err:
+                    print(f"ERROR: 解析 TXT 文件时发生未知错误: {parse_err} in {file_path}")
+                    if DEBUG_MODE: traceback.print_exc()
+                    raise RuntimeError(f"解析 TXT 文件出错: {parse_err}")
+
+            else:
+                raise ValueError(f"不支持的文件格式: {file_ext}")
+
+            # Create PyVista PolyData
+            if points is not None and len(points) > 0:
+                point_cloud = pv.PolyData(points)
+                if colors is not None:
+                    # Ensure colors array shape matches points array length
+                    if len(colors) == len(points):
+                        point_cloud['colors'] = colors
+                    else:
+                        print(
+                            f"Warning: 颜色数据长度 ({len(colors)}) 与点数据长度 ({len(points)}) 不匹配 in {file_path}. Ignoring colors.")
+
+                # Check for NaN/inf in points which can cause issues later
+                if np.any(~np.isfinite(points)):
+                    print(f"Warning: 点数据包含 NaN 或 Inf 值 in {file_path}. 可能导致后续操作失败。")
+                    # Optionally, filter them out here, but be careful about color correspondence
+                    finite_mask = np.all(np.isfinite(points), axis=1)
+                    points = points[finite_mask]
+                    if colors is not None and len(colors) == len(finite_mask): # Check original length
+                        colors = colors[finite_mask]
+                    point_cloud = pv.PolyData(points)
+                    if colors is not None: point_cloud['colors'] = colors
+
+                return point_cloud, point_cloud.bounds, len(points)
+            else:
+                # Handle case where loading resulted in no valid points
+                return None, None, 0
+
         except Exception as e:
-            raise RuntimeError(f"加载点云文件出错: {str(e)}")
+            print(f"ERROR: 加载点云文件 '{file_path}' 出错: {e}")
+            if DEBUG_MODE: traceback.print_exc()
+            raise RuntimeError(f"加载点云文件出错: {e}")
 
     @staticmethod
     def slice_by_height(point_cloud, height_ratio, thickness_ratio):

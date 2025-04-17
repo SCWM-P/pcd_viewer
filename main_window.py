@@ -7,8 +7,8 @@ from PyQt6.QtWidgets import (QMainWindow, QVBoxLayout, QHBoxLayout, QWidget,
                              QFileDialog, QSplitter, QStatusBar, QMessageBox)
 from PyQt6.QtCore import Qt
 from pyvistaqt import QtInteractor, MainWindow
+from . import DEBUG_MODE
 
-from .ui.batch_slice_viewer_window import DEBUG_MODE
 # 导入自定义模块
 from .ui.sidebar_builder import SidebarBuilder
 from .ui.toolbar_builder import ToolbarBuilder
@@ -107,7 +107,8 @@ class PCDViewerWindow(MainWindow):
     def open_pcd_file(self):
         """打开PCD文件对话框"""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "选择PCD文件", "", "点云文件 (*.pcd *.ply *.xyz *.pts);;所有文件 (*)"
+            self, "选择点云文件", "",
+            "点云文件 (*.pcd *.ply *.xyz *.pts *.txt);;所有文件 (*)"
         )
         if file_path:
             self.load_pcd_file(file_path)

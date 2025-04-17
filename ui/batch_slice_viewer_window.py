@@ -19,11 +19,34 @@ from pyvistaqt import QtInteractor
 # 导入项目模块
 from ..utils.point_cloud_handler import PointCloudHandler
 from ..utils.stylesheet_manager import StylesheetManager
-
-DEBUG_MODE = False
+from .. import DEBUG_MODE
 
 # --- Thumbnail/Bitmap Rendering Helper ---
-def render_slice_to_image(slice_data, size, is_thumbnail=True):
+def get_overall_xy_bounds(slices_dict):
+    """Calculates the overall XY bounding box for a dictionary of slices."""
+    all_bounds_xy = []
+    for slice_data in slices_dict.values():
+        if slice_data is not None and slice_data.n_points > 0:
+            # Check if bounds are valid before extending
+            if slice_data.bounds[0] < slice_data.bounds[1] and slice_data.bounds[2] < slice_data.bounds[3]:
+                 all_bounds_xy.extend(slice_data.bounds[0:4]) # Extend with xmin, xmax, ymin, ymax
+
+    if not all_bounds_xy:
+        return None # No valid bounds found
+
+    xmin = min(all_bounds_xy[0::4])
+    xmax = max(all_bounds_xy[1::4])
+    ymin = min(all_bounds_xy[2::4])
+    ymax = max(all_bounds_xy[3::4])
+
+    # Add a small padding to avoid points exactly on the edge
+    x_pad = (xmax - xmin) * 0.05
+    y_pad = (ymax - ymin) * 0.05
+    padding = max(x_pad, y_pad, 0.1) # Ensure minimum padding
+
+    return [xmin - padding, xmax + padding, ymin - padding, ymax + padding]
+
+def render_slice_to_image(slice_data, size, overall_xy_bounds=None, is_thumbnail=True):
     """
     Renders a single slice to a NumPy image array using an off-screen plotter.
     """
@@ -52,12 +75,20 @@ def render_slice_to_image(slice_data, size, is_thumbnail=True):
 
         if DEBUG_MODE: print("DEBUG: render_slice_to_image - Setting view_xy()")
         plotter.view_xy()
-        if DEBUG_MODE: print(f"DEBUG: render_slice_to_image - Resetting camera to bounds: {slice_data.bounds}")
-        if slice_data.bounds[0] < slice_data.bounds[1]:
+        if overall_xy_bounds:
+            # Create bounds including the slice's Z range for reset_camera
+            zmin = slice_data.bounds[4] if slice_data else 0
+            zmax = slice_data.bounds[5] if slice_data else 0
+            camera_bounds = overall_xy_bounds + [zmin, zmax]  # Use slice Z but overall XY
+            if DEBUG_MODE: print(
+                f"DEBUG: render_slice_to_image - Resetting camera using OVERALL XY bounds: {camera_bounds}")
+            plotter.reset_camera(bounds=camera_bounds)
+        elif slice_data and slice_data.bounds[0] < slice_data.bounds[1]:  # Fallback to slice bounds if overall not provided
+            if DEBUG_MODE: print(
+                f"DEBUG: render_slice_to_image - Resetting camera using SLICE bounds: {slice_data.bounds}")
             plotter.reset_camera(bounds=slice_data.bounds)
-            if DEBUG_MODE: print("DEBUG: render_slice_to_image - Camera reset done.")
         else:
-            if DEBUG_MODE: print("DEBUG: render_slice_to_image - Invalid bounds, skipping camera reset.")
+            if DEBUG_MODE: print("DEBUG: render_slice_to_image - No valid bounds for camera reset.")
 
         if DEBUG_MODE: print("DEBUG: render_slice_to_image - Taking screenshot...")
         img_np = plotter.screenshot(return_img=True)
@@ -94,17 +125,16 @@ def render_slice_to_image(slice_data, size, is_thumbnail=True):
 
 # --- Background Thread for Processing ---
 class SliceProcessingThread(QThread):
-    # ... (signals remain the same) ...
     progress = pyqtSignal(int, str)
     slice_ready = pyqtSignal(int, object, tuple)
     thumbnail_ready = pyqtSignal(int, QPixmap, dict)
     finished = pyqtSignal(bool)
-
-    # ... (__init__ remains the same) ...
-    def __init__(self, point_cloud, num_slices, thickness, thumbnail_size, parent=None):
+    def __init__(self, point_cloud, num_slices, thickness, limit_thickness, thumbnail_size, parent=None):
         super().__init__(parent)
         self.point_cloud = point_cloud
         self.num_slices = num_slices
+        self.thickness_param = thickness
+        self.limit_thickness = limit_thickness
         self.thickness = thickness
         self.thumbnail_size = thumbnail_size
         self._is_running = True
@@ -112,7 +142,6 @@ class SliceProcessingThread(QThread):
 
 
     def run(self):
-        # ... (run method setup and slicing phase remain the same) ...
         if DEBUG_MODE: print("DEBUG: SliceProcessingThread run started.")
         if self.point_cloud is None or self.num_slices <= 0 or self.thickness <= 0:
             if DEBUG_MODE: print("DEBUG: SliceProcessingThread run - Invalid parameters or point cloud.")
@@ -137,6 +166,18 @@ class SliceProcessingThread(QThread):
 
             step = total_height / self.num_slices
             current_start_z = min_z
+            actual_thickness = self.thickness_param
+            if self.limit_thickness:
+                # Limit thickness to the interval step size to prevent overlap
+                max_allowed_thickness = step
+                if actual_thickness > max_allowed_thickness:
+                    if DEBUG_MODE: print(
+                        f"DEBUG: Requested thickness {self.thickness_param} exceeds step {max_allowed_thickness}. Limiting thickness.")
+                    actual_thickness = max_allowed_thickness
+                else:
+                    if DEBUG_MODE: print(f"DEBUG: Requested thickness {self.thickness_param} is within limit.")
+            else:
+                if DEBUG_MODE: print("DEBUG: Thickness limit checkbox is off.")
             total_steps = self.num_slices * 2 # Slicing + Thumbnail generation
             if DEBUG_MODE: print(f"DEBUG: SliceProcessingThread - Calculated step={step}")
 
@@ -144,13 +185,20 @@ class SliceProcessingThread(QThread):
             generated_slices = []
             height_ranges = []
             if DEBUG_MODE: print("DEBUG: SliceProcessingThread - Starting slicing phase...")
+            temp_slices_dict = {i: s for i, s in enumerate(generated_slices)}
+
+            # --- Get the overall bounds ---
+            overall_xy_bounds = get_overall_xy_bounds(temp_slices_dict)
+            if DEBUG_MODE: print(f"DEBUG: SliceProcessingThread - Calculated overall XY bounds: {overall_xy_bounds}")
+
             for i in range(self.num_slices):
-                if not self._is_running: raise InterruptedError("Processing stopped by user request.")
+                if not self._is_running:
+                    raise InterruptedError("Processing stopped by user request.")
                 self.progress.emit(int((i + 1) / total_steps * 100), f"正在生成切片 {i+1}/{self.num_slices}")
                 if DEBUG_MODE: print(f"DEBUG: SliceProcessingThread - Generating slice {i}...")
 
                 slice_start_z = current_start_z # Slice from the start of the interval
-                slice_end_z = slice_start_z + self.thickness
+                slice_end_z = slice_start_z + actual_thickness
                 slice_end_z = min(slice_end_z, max_z + 1e-6) # Add small tolerance
                 slice_start_z = min(slice_start_z, slice_end_z) # Ensure start <= end
 
@@ -181,7 +229,9 @@ class SliceProcessingThread(QThread):
                 if DEBUG_MODE: print(f"DEBUG: SliceProcessingThread - Generating thumbnail {i}...")
 
                 slice_data = generated_slices[i]
-                img_np, view_params = render_slice_to_image(slice_data, self.thumbnail_size, is_thumbnail=True)
+                img_np, view_params = render_slice_to_image(
+                    slice_data, self.thumbnail_size, overall_xy_bounds, is_thumbnail=True
+                )
                 if DEBUG_MODE: print(f"DEBUG: SliceProcessingThread - Thumbnail {i} rendered. Image valid: {img_np is not None}")
 
                 metadata = {
@@ -341,6 +391,11 @@ class BatchSliceViewerWindow(QWidget):
         self.thickness_spin.setValue(0.10); self.thickness_spin.setDecimals(3)
         thickness_layout.addWidget(self.thickness_spin)
         slicing_layout.addLayout(thickness_layout)
+        self.limit_thickness_check = QCheckBox("无重叠")
+        self.limit_thickness_check.setChecked(True)  # Default to True
+        self.limit_thickness_check.setToolTip(
+            "勾选时，单片厚度最大不超过总高度/切片数，确保切片不重叠。\n取消勾选则使用指定的厚度值。")
+        slicing_layout.addWidget(self.limit_thickness_check)
         right_layout.addWidget(slicing_group)
         # Visualization Parameters Group
         viz_group = QGroupBox("3D视图参数")
@@ -441,6 +496,7 @@ class BatchSliceViewerWindow(QWidget):
 
         num_slices = self.num_slices_spin.value()
         thickness = self.thickness_spin.value()
+        limit_thickness = self.limit_thickness_check.isChecked()
         thumbnail_size = self.slice_list_widget.iconSize()
 
         if DEBUG_MODE: print("DEBUG: _start_slice_processing - Setting up progress dialog.")
@@ -455,7 +511,7 @@ class BatchSliceViewerWindow(QWidget):
 
         if DEBUG_MODE: print("DEBUG: _start_slice_processing - Starting SliceProcessingThread.")
         self.processing_thread = SliceProcessingThread(
-            self.original_point_cloud, num_slices, thickness, thumbnail_size
+            self.original_point_cloud, num_slices, thickness, limit_thickness, thumbnail_size
         )
         self.processing_thread.progress.connect(self._update_progress)
         self.processing_thread.slice_ready.connect(self._collect_slice_data)
@@ -681,7 +737,11 @@ class BatchSliceViewerWindow(QWidget):
         export_progress.show()
 
         exported_count = 0
+        exported_pcd_count = 0
         if DEBUG_MODE: print("DEBUG: _export_bitmaps - Starting export loop...")
+        overall_xy_bounds = get_overall_xy_bounds(self.current_slices)
+        if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Using overall XY bounds for rendering: {overall_xy_bounds}")
+
         for i, index in enumerate(indices_to_export):
              export_progress.setValue(i)
              if export_progress.wasCanceled():
@@ -710,7 +770,7 @@ class BatchSliceViewerWindow(QWidget):
 
                     if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Rendering bitmap for slice {index}...")
                     img_np, view_params_render = render_slice_to_image(
-                        slice_data, self.BITMAP_EXPORT_RESOLUTION, is_thumbnail=False
+                        slice_data, self.BITMAP_EXPORT_RESOLUTION, overall_xy_bounds, is_thumbnail=False
                     )
                     if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Bitmap rendered for slice {index}. Valid: {img_np is not None}")
 
@@ -746,12 +806,33 @@ class BatchSliceViewerWindow(QWidget):
                 elif metadata.get("is_empty", False):
                      exported_count += 1 # Count empty slices where metadata was saved
 
+                if slice_data is not None and slice_data.n_points > 0:
+                    pcd_filename = os.path.join(base_export_path, f"slice_{index}.pcd")
+                    try:
+                        if DEBUG_MODE: print(f"DEBUG: Exporting PCD for slice {index} to {pcd_filename}...")
+                        # Use PyVista's save method, ensure binary=True for standard PCD
+                        slice_data.save(pcd_filename, binary=True)
+                        exported_pcd_count += 1
+                        if DEBUG_MODE: print(f"DEBUG: PCD saved successfully for slice {index}.")
+                    except Exception as pcd_err:
+                        print(f"ERROR: Failed to save PCD for slice {index}: {pcd_err}")
+                        if DEBUG_MODE: traceback.print_exc()
+                elif DEBUG_MODE:
+                    print(f"DEBUG: Skipping PCD export for empty slice {index}.")
+
              else:
                 print(f"WARNING: Data or metadata missing for slice index {index} during export loop. Skipping.")
 
         export_progress.setValue(len(indices_to_export))
+        total_exported = max(exported_count, exported_pcd_count)
         if DEBUG_MODE: print(f"DEBUG: _export_bitmaps finished. Exported count: {exported_count}")
-        QMessageBox.information(self, "导出完成", f"成功导出 {exported_count} 个切片的数据到:\n{base_export_path}")
+        QMessageBox.information(
+            self, "导出完成",
+            f"处理完成 {len(indices_to_export)} 个切片。\n"
+            f"成功导出 {exported_count} 个位图/元数据。\n"
+            f"成功导出 {exported_pcd_count} 个 PCD 文件。\n"
+            f"文件保存在:\n{base_export_path}"
+        )
 
     def _export_selected_bitmaps(self):
         selected_items = self.slice_list_widget.selectedItems()

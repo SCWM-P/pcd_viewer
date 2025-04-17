@@ -1,8 +1,8 @@
 import sys
-from . import compatibility # Please do not delete this line
+from . import compatibility  # Please do not delete this line
 from PyQt6.QtWidgets import QApplication
 from .main_window import PCDViewerWindow
-
+from . import DEBUG_MODE
 
 def exception_hook(exctype, value, tb):
     """全局异常处理函数，打印详细错误信息"""
@@ -22,6 +22,5 @@ def main():
 
 
 sys.excepthook = exception_hook
-debug_mode = True
-if __name__ == "__main__" or debug_mode == True:
+if __name__ == "__main__":
     main()

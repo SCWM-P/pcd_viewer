@@ -12,3 +12,5 @@ __dependencies__ = [
     "opencv-python",
     "qtawesome"
 ]
+
+DEBUG_MODE = False
