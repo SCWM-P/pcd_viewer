@@ -6,6 +6,7 @@ import datetime
 import numpy as np
 import pyvista as pv
 import cv2
+import open3d as o3d
 import traceback
 from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QListWidget,
                              QListWidgetItem, QPushButton, QSplitter, QGroupBox,
@@ -729,7 +730,12 @@ class BatchSliceViewerWindow(QWidget):
         with open(global_params_file, 'w', encoding='utf-8') as f:
             json.dump(global_params, f, ensure_ascii=False, indent=2)
 
-        export_progress = QProgressDialog("正在导出位图...", "取消", 0, len(indices_to_export), self)
+        # Get overall XY bounds for consistent rendering (remains the same)
+        overall_xy_bounds = get_overall_xy_bounds(self.current_slices)
+        if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Using overall XY bounds for rendering: {overall_xy_bounds}")
+
+        # Setup progress dialog (remains the same)
+        export_progress = QProgressDialog("正在导出数据...", "取消", 0, len(indices_to_export), self)
         export_progress.setWindowTitle("导出进度")
         export_progress.setWindowModality(Qt.WindowModality.WindowModal)
         export_progress.setAutoClose(True)
@@ -738,10 +744,8 @@ class BatchSliceViewerWindow(QWidget):
 
         exported_count = 0
         exported_pcd_count = 0
-        if DEBUG_MODE: print("DEBUG: _export_bitmaps - Starting export loop...")
-        overall_xy_bounds = get_overall_xy_bounds(self.current_slices)
-        if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Using overall XY bounds for rendering: {overall_xy_bounds}")
 
+        if DEBUG_MODE: print("DEBUG: _export_bitmaps - Starting export loop...")
         for i, index in enumerate(indices_to_export):
              export_progress.setValue(i)
              if export_progress.wasCanceled():
@@ -749,88 +753,119 @@ class BatchSliceViewerWindow(QWidget):
                  break
 
              if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Processing index {index}...")
-             if index in self.current_slices and index in self.slice_metadata:
-                slice_data = self.current_slices.get(index) # Use get for safety
-                metadata = self.slice_metadata.get(index)
+             slice_data_pv = self.current_slices.get(index) # PyVista PolyData
+             metadata = self.slice_metadata.get(index)
 
-                # Double check metadata exists
-                if metadata is None:
-                    print(f"WARNING: Metadata missing for slice index {index} during export. Skipping.")
-                    continue
+             # Check if we have data and metadata for this index
+             if metadata is None:
+                 print(f"WARNING: Metadata missing for slice index {index} during export. Skipping.")
+                 continue
 
-                img_np = None
-                view_params_render = None # Initialize
+             # --- Render and Save Bitmap ---
+             img_np = None
+             view_params_render = None
+             render_error_msg = None
 
-                if metadata.get("is_empty", False):
-                     print(f"INFO: Skipping bitmap rendering for empty slice {index}.")
-                     view_params_render = metadata.get("view_params")
-                else:
-                    export_progress.setLabelText(f"正在渲染切片 {index}...")
-                    QApplication.processEvents()
-
-                    if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Rendering bitmap for slice {index}...")
-                    img_np, view_params_render = render_slice_to_image(
-                        slice_data, self.BITMAP_EXPORT_RESOLUTION, overall_xy_bounds, is_thumbnail=False
-                    )
-                    if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Bitmap rendered for slice {index}. Valid: {img_np is not None}")
-
-                # Save metadata
-                meta_filename = os.path.join(base_export_path, f"slice_{index}_metadata.json")
-                if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Saving metadata to {meta_filename}...")
-                metadata["view_params_render"] = view_params_render if img_np is not None else None
-                if img_np is None and not metadata.get("is_empty", False):
-                     metadata["render_error"] = "Failed to generate bitmap"
-                export_data = {"slice_index": index, "metadata": metadata}
-                try:
-                    with open(meta_filename, 'w', encoding='utf-8') as f:
-                        json.dump(export_data, f, ensure_ascii=False, indent=2)
-                    if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Metadata saved.")
-                except Exception as meta_save_err:
-                    print(f"ERROR: Failed to save metadata for slice {index}: {meta_save_err}")
-
-                # Save bitmap if rendering was successful
-                if img_np is not None:
-                    try:
-                        bitmap_filename = os.path.join(base_export_path, f"slice_{index}_bitmap.png")
-                        if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Saving bitmap to {bitmap_filename}...")
-                        img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-                        success = cv2.imwrite(bitmap_filename, img_bgr)
-                        if not success:
-                             print(f"ERROR: Failed to save bitmap file: {bitmap_filename}")
-                        else:
-                             if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Bitmap saved successfully.")
-                             exported_count += 1
-                    except Exception as export_err:
-                         print(f"ERROR: Failed to save bitmap for slice {index}: {export_err}")
-                         if DEBUG_MODE: traceback.print_exc()
-                elif metadata.get("is_empty", False):
-                     exported_count += 1 # Count empty slices where metadata was saved
-
-                if slice_data is not None and slice_data.n_points > 0:
-                    pcd_filename = os.path.join(base_export_path, f"slice_{index}.pcd")
-                    try:
-                        if DEBUG_MODE: print(f"DEBUG: Exporting PCD for slice {index} to {pcd_filename}...")
-                        # Use PyVista's save method, ensure binary=True for standard PCD
-                        slice_data.save(pcd_filename, binary=True)
-                        exported_pcd_count += 1
-                        if DEBUG_MODE: print(f"DEBUG: PCD saved successfully for slice {index}.")
-                    except Exception as pcd_err:
-                        print(f"ERROR: Failed to save PCD for slice {index}: {pcd_err}")
-                        if DEBUG_MODE: traceback.print_exc()
-                elif DEBUG_MODE:
-                    print(f"DEBUG: Skipping PCD export for empty slice {index}.")
-
+             if metadata.get("is_empty", False) or slice_data_pv is None:
+                 print(f"INFO: Skipping bitmap rendering for empty slice {index}.")
+                 view_params_render = metadata.get("view_params") # Use original thumb params if available
              else:
-                print(f"WARNING: Data or metadata missing for slice index {index} during export loop. Skipping.")
+                 export_progress.setLabelText(f"正在渲染切片 {index}...")
+                 QApplication.processEvents()
+                 if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Rendering bitmap for slice {index}...")
+                 try:
+                     img_np, view_params_render = render_slice_to_image(
+                         slice_data_pv, self.BITMAP_EXPORT_RESOLUTION, overall_xy_bounds, is_thumbnail=False
+                     )
+                     if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Bitmap rendered for slice {index}. Valid: {img_np is not None}")
+                     if img_np is None: render_error_msg = "Bitmap rendering failed (returned None)"
+                 except Exception as render_err:
+                      render_error_msg = f"Bitmap rendering error: {render_err}"
+                      print(f"ERROR: {render_error_msg}")
+                      if DEBUG_MODE: traceback.print_exc()
+
+
+             # --- Save Metadata (always try to save) ---
+             meta_filename = os.path.join(base_export_path, f"slice_{index}_metadata.json")
+             if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Saving metadata to {meta_filename}...")
+             metadata["view_params_render"] = view_params_render if img_np is not None else None
+             if render_error_msg: metadata["render_error"] = render_error_msg
+             export_data = {"slice_index": index, "metadata": metadata}
+             try:
+                 with open(meta_filename, 'w', encoding='utf-8') as f:
+                     json.dump(export_data, f, ensure_ascii=False, indent=2)
+                 if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Metadata saved.")
+             except Exception as meta_save_err:
+                 print(f"ERROR: Failed to save metadata for slice {index}: {meta_save_err}")
+
+
+             # --- Save Bitmap if rendering was successful ---
+             bitmap_saved = False
+             if img_np is not None:
+                 try:
+                     bitmap_filename = os.path.join(base_export_path, f"slice_{index}_bitmap.png")
+                     if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Saving bitmap to {bitmap_filename}...")
+                     img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+                     success = cv2.imwrite(bitmap_filename, img_bgr)
+                     if not success:
+                          print(f"ERROR: Failed to save bitmap file: {bitmap_filename}")
+                     else:
+                          if DEBUG_MODE: print(f"DEBUG: _export_bitmaps - Bitmap saved successfully.")
+                          bitmap_saved = True
+                 except Exception as export_err:
+                      print(f"ERROR: Failed to save bitmap for slice {index}: {export_err}")
+                      if DEBUG_MODE: traceback.print_exc()
+
+             # --- Save Slice PCD file using Open3D ---
+             pcd_saved = False
+             if slice_data_pv is not None and slice_data_pv.n_points > 0:
+                 pcd_filename = os.path.join(base_export_path, f"slice_{index}.pcd")
+                 try:
+                     if DEBUG_MODE: print(f"DEBUG: Exporting PCD for slice {index} to {pcd_filename}...")
+                     # --- FIX: Convert PyVista PolyData to Open3D PointCloud ---
+                     points = slice_data_pv.points
+                     o3d_pcd = o3d.geometry.PointCloud()
+                     o3d_pcd.points = o3d.utility.Vector3dVector(points)
+
+                     if 'colors' in slice_data_pv.point_data:
+                         # PyVista and Open3D colors are typically 0-1 float
+                         colors = slice_data_pv['colors']
+                         # Ensure colors have the right shape and type
+                         if colors.ndim == 2 and colors.shape[1] == 3 and colors.shape[0] == len(points):
+                              o3d_pcd.colors = o3d.utility.Vector3dVector(colors.astype(np.float64))
+                         else:
+                              print(f"Warning: Invalid color data shape/type for slice {index}, saving PCD without colors.")
+
+                     # Use Open3D to write the PCD file
+                     success = o3d.io.write_point_cloud(pcd_filename, o3d_pcd, write_ascii=False, compressed=True)
+
+                     if not success:
+                          # write_point_cloud might not return False on all errors, rely on exception below
+                          print(f"ERROR: Open3D failed to save PCD file (write_point_cloud returned False/None?): {pcd_filename}")
+                     else:
+                          if DEBUG_MODE: print(f"DEBUG: PCD saved successfully for slice {index}.")
+                          pcd_saved = True
+                          exported_pcd_count += 1 # Increment PCD counter on success
+
+                 except Exception as pcd_err:
+                     print(f"ERROR: Failed to save PCD for slice {index}: {pcd_err}")
+                     if DEBUG_MODE: traceback.print_exc()
+             elif DEBUG_MODE:
+                  print(f"DEBUG: Skipping PCD export for empty slice {index}.")
+                  pcd_saved = True # Consider empty slice PCD as "handled"
+
+             # Increment overall exported count if at least bitmap or PCD was saved (or slice was empty)
+             if bitmap_saved or pcd_saved or metadata.get("is_empty", False):
+                  exported_count += 1
+
 
         export_progress.setValue(len(indices_to_export))
-        total_exported = max(exported_count, exported_pcd_count)
-        if DEBUG_MODE: print(f"DEBUG: _export_bitmaps finished. Exported count: {exported_count}")
+        if DEBUG_MODE: print(f"DEBUG: _export_bitmaps finished. Total items processed: {len(indices_to_export)}, successful exports (item level): {exported_count}, successful PCDs: {exported_pcd_count}")
         QMessageBox.information(
             self, "导出完成",
             f"处理完成 {len(indices_to_export)} 个切片。\n"
-            f"成功导出 {exported_count} 个位图/元数据。\n"
-            f"成功导出 {exported_pcd_count} 个 PCD 文件。\n"
+            # f"成功导出 {exported_count} 个位图/元数据。\n" # Message might be confusing now
+            f"成功导出 {exported_pcd_count} 个 PCD 文件、位图和元数据\n"
             f"文件保存在:\n{base_export_path}"
         )
 
