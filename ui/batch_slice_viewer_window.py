@@ -1148,7 +1148,8 @@ class BatchSliceViewerWindow(QWidget):
             current_offset += offset_value
 
         if actors:
-            if DEBUG_MODE: print(f"DEBUG: _update_3d_view_presentation - {len(actors)} actors added. Resetting camera.")
+            if DEBUG_MODE:
+                print(f"DEBUG: _update_3d_view_presentation - {len(actors)} actors added. Resetting camera.")
             try:
                 # Reset camera based on the new layout of actors
                 if all_bounds:
@@ -1171,7 +1172,8 @@ class BatchSliceViewerWindow(QWidget):
                 print(f"ERROR: Error resetting camera: {e}")
                 if DEBUG_MODE: traceback.print_exc()
         elif self.current_slices:  # Check if slices exist but were all empty
-            if DEBUG_MODE: print("DEBUG: _update_3d_view_presentation - No actors added, slices might be empty.")
+            if DEBUG_MODE:
+                print("DEBUG: _update_3d_view_presentation - No actors added, slices might be empty.")
             self.plotter.add_text("所有切片均为空。", position="upper_left", font_size=12, name="status_text")
         # else: # No slices exist, message handled earlier or by processing finished
 
@@ -1210,8 +1212,14 @@ class BatchSliceViewerWindow(QWidget):
         overall_xy_bounds = get_overall_xy_bounds(self.current_slices)
         if DEBUG_MODE:
             print(f"DEBUG: _export_bitmaps - Using overall XY bounds for rendering: {overall_xy_bounds}")
-        export_progress = QProgressDialog("正在导出数据...", "取消", 0, len(indices_to_export), self); export_progress.setWindowTitle("导出进度"); export_progress.setWindowModality(Qt.WindowModality.WindowModal); export_progress.setAutoClose(True); export_progress.setAutoReset(True); export_progress.show()
-        exported_count = 0; exported_pcd_count = 0; exported_density_count = 0
+        export_progress = QProgressDialog("正在导出数据...", "取消", 0, len(indices_to_export), self)
+        export_progress.setWindowTitle("导出进度")
+        export_progress.setWindowModality(Qt.WindowModality.WindowModal)
+        export_progress.setAutoClose(True)
+        export_progress.setAutoReset(True)
+        export_progress.show()
+        exported_count = 0; exported_pcd_count = 0
+        exported_density_count = 0
         for i, index in enumerate(indices_to_export):
              export_progress.setValue(i);
              if export_progress.wasCanceled(): print("INFO: Export canceled by user."); break
@@ -1220,34 +1228,53 @@ class BatchSliceViewerWindow(QWidget):
              density_matrix = self.density_matrices.get(index); density_pixmap = self.density_pixmaps.get(index)
              density_params_saved = self.density_params.get(index) # Params used for saved pixmap
 
-             if metadata is None: print(f"WARNING: Metadata missing for slice index {index} during export. Skipping."); continue
-             img_np = None; view_params_render = None; render_error_msg = None; bitmap_saved = False; pcd_saved = False; density_saved = False
+             if metadata is None:
+                 print(f"WARNING: Metadata missing for slice index {index} during export. Skipping.")
+                 continue
+             img_np = None
+             view_params_render = None
+             render_error_msg = None
+             bitmap_saved = False
+             pcd_saved = False
+             density_saved = False
              # --- Render Bitmap ---
              if not metadata.get("is_empty", False) and slice_data_pv is not None:
                  export_progress.setLabelText(f"正在渲染切片位图 {index}...") ; QApplication.processEvents()
                  try:
                      img_np, view_params_render = render_slice_to_image(slice_data_pv, self.BITMAP_EXPORT_RESOLUTION, overall_xy_bounds, is_thumbnail=False)
-                     if img_np is None: render_error_msg = "Bitmap rendering failed"
-                 except Exception as render_err: render_error_msg = f"Bitmap rendering error: {render_err}"
-             else: print(f"INFO: Skipping bitmap rendering for empty slice {index}.")
+                     if img_np is None:
+                         render_error_msg = "Bitmap rendering failed"
+                 except Exception as render_err:
+                     render_error_msg = f"Bitmap rendering error: {render_err}"
+             else:
+                 print(f"INFO: Skipping bitmap rendering for empty slice {index}.")
 
              # --- Save Metadata (include density params if available) ---
              meta_filename = os.path.join(base_export_path, f"slice_{index}_metadata.json")
              metadata["view_params_render"] = view_params_render if img_np is not None else None
-             if render_error_msg: metadata["render_error"] = render_error_msg
-             if density_params_saved: metadata["density_params"] = density_params_saved # Add density info
-             export_data = {"slice_index": index, "metadata": metadata}
+             if render_error_msg:
+                 metadata["render_error"] = render_error_msg
+             if density_params_saved:
+                 metadata["density_params"] = density_params_saved # Add density info
+             export_data = {
+                 "slice_index": index,
+                 "metadata": metadata
+             }
              try:
-                 with open(meta_filename, 'w', encoding='utf-8') as f: json.dump(export_data, f, ensure_ascii=False, indent=2)
-             except Exception as meta_save_err: print(f"ERROR: Failed to save metadata for slice {index}: {meta_save_err}")
+                 with open(meta_filename, 'w', encoding='utf-8') as f:
+                     json.dump(export_data, f, ensure_ascii=False, indent=2)
+             except Exception as meta_save_err:
+                 print(f"ERROR: Failed to save metadata for slice {index}: {meta_save_err}")
 
              # --- Save Bitmap ---
              if img_np is not None:
                  try:
                      bitmap_filename = os.path.join(base_export_path, f"slice_{index}_bitmap.png")
                      img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-                     if cv2.imwrite(bitmap_filename, img_bgr): bitmap_saved = True
-                     else: print(f"ERROR: Failed to save bitmap file: {bitmap_filename}")
+                     if cv2.imwrite(bitmap_filename, img_bgr):
+                         bitmap_saved = True
+                     else:
+                         print(f"ERROR: Failed to save bitmap file: {bitmap_filename}")
                  except Exception as export_err: print(f"ERROR: Failed to save bitmap for slice {index}: {export_err}")
 
              # --- Save PCD ---
@@ -1258,11 +1285,16 @@ class BatchSliceViewerWindow(QWidget):
                     points = slice_data_pv.points; o3d_pcd = o3d.geometry.PointCloud(); o3d_pcd.points = o3d.utility.Vector3dVector(points)
                     if 'colors' in slice_data_pv.point_data:
                         colors = slice_data_pv['colors']
-                        if colors.ndim == 2 and colors.shape[1] == 3 and colors.shape[0] == len(points): o3d_pcd.colors = o3d.utility.Vector3dVector(colors.astype(np.float64))
-                    if o3d.io.write_point_cloud(pcd_filename, o3d_pcd, write_ascii=False, compressed=True): pcd_saved = True; exported_pcd_count += 1
-                    else: print(f"ERROR: Open3D failed to save PCD file: {pcd_filename}")
-                 except Exception as pcd_err: print(f"ERROR: Failed to save PCD for slice {index}: {pcd_err}")
-             elif metadata.get("is_empty", False): pcd_saved = True # Consider empty slice handled
+                        if colors.ndim == 2 and colors.shape[1] == 3 and colors.shape[0] == len(points):
+                            o3d_pcd.colors = o3d.utility.Vector3dVector(colors.astype(np.float64))
+                    if o3d.io.write_point_cloud(pcd_filename, o3d_pcd, write_ascii=False, compressed=True):
+                        pcd_saved = True; exported_pcd_count += 1
+                    else:
+                        print(f"ERROR: Open3D failed to save PCD file: {pcd_filename}")
+                 except Exception as pcd_err:
+                     print(f"ERROR: Failed to save PCD for slice {index}: {pcd_err}")
+             elif metadata.get("is_empty", False):
+                 pcd_saved = True # Consider empty slice handled
 
              # --- Save Density Data ---
              if density_matrix is not None:
@@ -1277,8 +1309,10 @@ class BatchSliceViewerWindow(QWidget):
                          density_pixmap.save(heatmap_filename, "PNG")
                          density_saved = True
                          exported_density_count += 1
-                     else: print(f"WARNING: Density heatmap pixmap not available or invalid for slice {index}, matrix saved.")
-                 except Exception as density_err: print(f"ERROR: Failed to save density data for slice {index}: {density_err}")
+                     else:
+                         print(f"WARNING: Density heatmap pixmap not available or invalid for slice {index}, matrix saved.")
+                 except Exception as density_err:
+                     print(f"ERROR: Failed to save density data for slice {index}: {density_err}")
              elif index in self.density_matrices: # Check if density was calculated but matrix is None/empty
                   density_saved = True # Consider handled if calculation was attempted
 
@@ -1324,7 +1358,10 @@ class BatchSliceViewerWindow(QWidget):
                 self.density_processing_thread.wait(1500)
 
         if self.plotter:
-             if DEBUG_MODE: print("DEBUG: Closing plotter in closeEvent.")
-             try: self.plotter.close()
-             except Exception as e: print(f"ERROR: Exception while closing plotter in closeEvent: {e}")
+             if DEBUG_MODE:
+                 print("DEBUG: Closing plotter in closeEvent.")
+             try:
+                 self.plotter.close()
+             except Exception as e:
+                 print(f"ERROR: Exception while closing plotter in closeEvent: {e}")
         super().closeEvent(event)
