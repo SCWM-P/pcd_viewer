@@ -13,4 +13,4 @@ __dependencies__ = [
     "qtawesome"
 ]
 
-DEBUG_MODE = True
+DEBUG_MODE = False
