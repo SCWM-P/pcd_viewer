@@ -19,6 +19,7 @@ from .utils.stylesheet_manager import StylesheetManager
 from .ui.line_detection_dialog import LineDetectionDialog
 from .ui.batch_slice_viewer_window import BatchSliceViewerWindow
 
+
 class PCDViewerWindow(MainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -279,17 +280,19 @@ class PCDViewerWindow(MainWindow):
             # --- FIX: Create window without setting parent=self ---
             # Check if an instance exists to avoid multiple windows (Keep this logic)
             # Use a more robust check like checking if the attribute exists AND the window is valid
-            instance_exists = hasattr(self, 'batch_slicer_window_instance') and self.batch_slicer_window_instance is not None
+            instance_exists = hasattr(self,
+                                      'batch_slicer_window_instance') and self.batch_slicer_window_instance is not None
             if instance_exists:
-                 try:
-                     # Check if the window was closed
-                     if not self.batch_slicer_window_instance.isVisible():
-                          instance_exists = False
-                 except RuntimeError: # Window might have been deleted
-                     instance_exists = False
+                try:
+                    # Check if the window was closed
+                    if not self.batch_slicer_window_instance.isVisible():
+                        instance_exists = False
+                except RuntimeError:  # Window might have been deleted
+                    instance_exists = False
 
             if not instance_exists:
-                if DEBUG_MODE: print("DEBUG: Creating new BatchSliceViewerWindow instance (no parent).")
+                if DEBUG_MODE:
+                    print("DEBUG: Creating new BatchSliceViewerWindow instance (no parent).")
                 # Create WITHOUT parent=self
                 self.batch_slicer_window_instance = BatchSliceViewerWindow(
                     self.point_cloud,
