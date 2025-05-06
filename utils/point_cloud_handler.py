@@ -6,6 +6,7 @@ import pandas as pd
 import traceback
 from .. import DEBUG_MODE
 
+
 class PointCloudHandler:
     """处理点云数据的加载、切片和基本操作"""
 
@@ -13,26 +14,21 @@ class PointCloudHandler:
     def load_from_file(file_path):
         """
         从文件加载点云
-
         Args:
             file_path (str): 点云文件的路径
-
         Returns:
             tuple: (pv.PolyData, 边界, 点数量)
         """
         file_ext = os.path.splitext(file_path)[1].lower()
-
         try:
             points = None
             colors = None
             point_cloud = None
-
             if file_ext in ['.pcd', '.ply', '.pts']:  # Original formats
                 pcd = o3d.io.read_point_cloud(file_path)
                 if not pcd.has_points():
                     print(f"Warning: 文件不包含点: {file_path}")
                     return None, None, 0
-
                 points = np.asarray(pcd.points)
                 if pcd.has_colors():
                     colors = np.asarray(pcd.colors)
@@ -40,11 +36,13 @@ class PointCloudHandler:
             elif file_ext in ['.txt', '.xyz']:
                 if DEBUG_MODE: print(f"DEBUG: Loading TXT file: {file_path}")
                 try:
-                    df = pd.read_csv(file_path, sep=r'\s+', header=None, usecols=[0, 1, 2, 3, 4, 5],
-                                     names=['x', 'y', 'z', 'r', 'g', 'b'],
-                                     on_bad_lines='warn',
-                                     engine='python',
-                                     comment='#')  # Add comment handling if needed
+                    df = pd.read_csv(
+                        file_path, sep=r'\s+', header=None, usecols=[0, 1, 2, 3, 4, 5],
+                        names=['x', 'y', 'z', 'r', 'g', 'b'],
+                        on_bad_lines='warn',
+                        engine='python',
+                        comment='#'
+                    )
 
                     df.dropna(inplace=True)
                     if df.empty:
@@ -61,9 +59,7 @@ class PointCloudHandler:
                     else:
                         if DEBUG_MODE: print("DEBUG: Assuming TXT colors are already 0-1 float.")
                         colors = colors_raw.astype(np.float64)
-
                     colors = np.clip(colors, 0.0, 1.0)
-
                     if DEBUG_MODE: print(f"DEBUG: Loaded {len(points)} points from TXT.")
 
                 except pd.errors.EmptyDataError:

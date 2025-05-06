@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QApplication
 from .main_window import PCDViewerWindow
 from . import DEBUG_MODE
 
+
 def exception_hook(exctype, value, tb):
     """全局异常处理函数，打印详细错误信息"""
     print('=' * 40)

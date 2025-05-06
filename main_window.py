@@ -3,6 +3,7 @@ import sys
 import datetime
 import traceback
 import cv2
+import numpy as np
 from PyQt6.QtWidgets import (QMainWindow, QVBoxLayout, QHBoxLayout, QWidget,
                              QFileDialog, QSplitter, QStatusBar, QMessageBox)
 from PyQt6.QtCore import Qt
@@ -118,19 +119,28 @@ class PCDViewerWindow(MainWindow):
         """加载点云文件"""
         try:
             self.statusBar.showMessage(f"正在加载: {os.path.basename(file_path)}...")
-
-            # --->>> Ensure this line exists and works <<<---
             self.current_file_name = os.path.basename(file_path)
-
             # 使用PointCloudHandler加载点云
             self.point_cloud, self.pcd_bounds, point_count = PointCloudHandler.load_from_file(file_path)
-
             # 更新状态
             self.statusBar.showMessage(f"已加载: {os.path.basename(file_path)}, {point_count} 点")
 
+            # 更新侧边栏
+            if self.point_cloud is not None and self.point_cloud.n_points > 0:
+                points_z = self.point_cloud.points[:, 2]
+                # Check if sidebar builder and widget exist before setting data
+                if hasattr(self, 'sidebar_builder') and self.sidebar_builder.height_dist_widget:
+                    self.sidebar_builder.height_dist_widget.set_histogram_data(points_z)
+                else:
+                    print("Warning: Height distribution widget not ready when loading file.")
+                self.update_thickness_indicator()
+            else:
+                # Clear histogram if cloud is empty or loading failed
+                if hasattr(self, 'sidebar_builder') and self.sidebar_builder.height_dist_widget:
+                    self.sidebar_builder.height_dist_widget.set_histogram_data(None)
+
             # 更新可视化
             self.update_visualization()  # Update main window view
-
             # 更新信息面板
             self.update_info_panel()
 
@@ -142,15 +152,29 @@ class PCDViewerWindow(MainWindow):
             self.current_file_name = ""  # Reset filename on failure
             return False
 
+    def update_thickness_indicator(self):
+        """槽: 当厚度输入改变时，更新分布图中的厚度指示"""
+        if not hasattr(self, 'sidebar_builder') or not self.sidebar_builder.height_dist_widget:
+            return
+        try:
+            thickness_ratio_text = self.sidebar_builder.thickness_input.text()
+            thickness_ratio = float(thickness_ratio_text)
+            # Ensure thickness is within valid range [0, 1] although input is ratio
+            thickness_ratio = np.clip(thickness_ratio, 0.0, 1.0)
+            self.sidebar_builder.height_dist_widget.update_thickness_ratio(thickness_ratio)
+        except ValueError:
+            # Handle invalid input in the QLineEdit if necessary
+            pass
+
     def update_visualization(self):
         """更新3D视图中的点云显示"""
         if self.point_cloud is None:
             return
-
         try:
             # 获取当前UI控件的值
             height_ratio = self.sidebar_builder.slice_height_slider.value() / 100.0
             thickness_text = self.sidebar_builder.thickness_input.text()
+            self.update_thickness_indicator()
             try:
                 thickness_ratio = float(thickness_text)
             except ValueError:
@@ -164,6 +188,8 @@ class PCDViewerWindow(MainWindow):
 
             # 更新高度标签
             self.sidebar_builder.update_height_label(height_ratio, height_range)
+            if hasattr(self, 'sidebar_builder') and self.sidebar_builder.height_value_label:
+                self.sidebar_builder.update_height_label(height_ratio, height_range)
 
             # 如果切片为空，显示完整点云
             if sliced_cloud is None or slice_point_count == 0:
@@ -293,7 +319,6 @@ class PCDViewerWindow(MainWindow):
             if not instance_exists:
                 if DEBUG_MODE:
                     print("DEBUG: Creating new BatchSliceViewerWindow instance (no parent).")
-                # Create WITHOUT parent=self
                 self.batch_slicer_window_instance = BatchSliceViewerWindow(
                     self.point_cloud,
                     source_filename=source_filename

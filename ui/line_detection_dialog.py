@@ -417,39 +417,6 @@ class LineDetectionDialog(QWidget):
         # 例如 [700, 200] 表示左侧占700像素，右侧占200像素
         self.main_splitter.setSizes([700, 200])
 
-        # 添加调整比例的按钮/功能
-        # self.add_ratio_control()
-
-    # def add_ratio_control(self):
-    #     """添加比例控制功能"""
-    #     # 创建比例预设按钮组
-    #     ratio_group = QGroupBox("布局比例")
-    #     ratio_layout = QHBoxLayout(ratio_group)
-    #
-    #     # 75:25 比例按钮
-    #     ratio_75_25_btn = QPushButton("75:25")
-    #     ratio_75_25_btn.clicked.connect(lambda: self.set_splitter_ratio(0.75))
-    #     ratio_layout.addWidget(ratio_75_25_btn)
-    #
-    #     # 70:30 比例按钮
-    #     ratio_70_30_btn = QPushButton("70:30")
-    #     ratio_70_30_btn.clicked.connect(lambda: self.set_splitter_ratio(0.70))
-    #     ratio_layout.addWidget(ratio_70_30_btn)
-    #
-    #     # 60:40 比例按钮
-    #     ratio_60_40_btn = QPushButton("60:40")
-    #     ratio_60_40_btn.clicked.connect(lambda: self.set_splitter_ratio(0.60))
-    #     ratio_layout.addWidget(ratio_60_40_btn)
-    #
-    #     # 50:50 比例按钮
-    #     ratio_50_50_btn = QPushButton("50:50")
-    #     ratio_50_50_btn.clicked.connect(lambda: self.set_splitter_ratio(0.50))
-    #     ratio_layout.addWidget(ratio_50_50_btn)
-    #
-    #     # 将比例控制组添加到右侧面板顶部
-    #     control_panel = self.main_splitter.widget(1)
-    #     control_layout = control_panel.layout()
-    #     control_layout.insertWidget(0, ratio_group)
 
     def set_splitter_ratio(self, left_ratio):
         """

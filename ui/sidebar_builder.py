@@ -1,7 +1,8 @@
-from PyQt6.QtWidgets import (QVBoxLayout, QHBoxLayout, QWidget,
+from PyQt6.QtWidgets import (QVBoxLayout, QHBoxLayout, QWidget, QFrame,
                              QPushButton, QCheckBox, QSlider, QLineEdit, QLabel,
                              QGroupBox, QTabWidget, QComboBox, QSpinBox)
 from PyQt6.QtCore import Qt
+from .height_distribution_widget import HeightDistributionWidget
 import qtawesome as qta
 
 
@@ -29,6 +30,7 @@ class SidebarBuilder:
         self.points_count_label = None
         self.bounds_label = None
         self.slice_info_label = None
+        self.height_dist_widget = None
 
     def build(self):
         """
@@ -136,8 +138,17 @@ class SidebarBuilder:
         self.slice_height_slider.valueChanged.connect(self.parent.update_visualization)
         slice_height_layout.addWidget(self.slice_height_slider)
 
+        # 高度分布直方图
+        self.height_dist_widget = HeightDistributionWidget()
+        # Connect slider value changed signal to the widget's update slot (pass ratio 0-1)
+        self.slice_height_slider.valueChanged.connect(
+            lambda value: self.height_dist_widget.update_slider_ratio(value / 100.0)
+        )
+        slice_height_layout.addWidget(self.height_dist_widget)
+
         # 显示当前高度值
         self.height_value_label = QLabel("0.00")
+        self.height_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         slice_height_layout.addWidget(self.height_value_label)
 
         slice_layout.addLayout(slice_height_layout)
