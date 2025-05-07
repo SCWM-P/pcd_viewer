@@ -8,7 +8,7 @@ import numpy as np
 
 class HeightDistributionWidget(QWidget):
     """绘制点云高度分布直方图的Widget"""
-    DEFAULT_BINS = 250  # 默认直方图桶数
+    DEFAULT_BINS = 500  # 默认直方图桶数
 
     def __init__(self, parent=None):
         super().__init__(parent)

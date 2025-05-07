@@ -8,7 +8,6 @@ import pyvista as pv
 import cv2
 import open3d as o3d
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QListWidget,
                              QListWidgetItem, QPushButton, QSplitter, QGroupBox,
                              QLabel, QSpinBox, QDoubleSpinBox, QCheckBox, QFileDialog,
@@ -79,7 +78,8 @@ def render_slice_to_image(slice_data, size, overall_xy_bounds=None, is_thumbnail
         }
         return img_np, view_params
     except Exception as e:
-        print(f"ERROR: Error rendering slice: {e}"); return None, {}
+        print(f"ERROR: Error rendering slice: {e}");
+        return None, {}
     finally:
         if plotter:
             try:
@@ -174,7 +174,8 @@ class SliceProcessingThread(QThread):
                     generated_slices.append(slice_cloud);
                     self.slice_ready.emit(i, slice_cloud, (slice_start_z, slice_end_z))
                 else:
-                    generated_slices.append(None); self.slice_ready.emit(i, None, (slice_start_z, slice_end_z))
+                    generated_slices.append(None);
+                    self.slice_ready.emit(i, None, (slice_start_z, slice_end_z))
                 current_start_z += step
             temp_slices_dict = {i: s for i, s in enumerate(generated_slices)}
             overall_xy_bounds = get_overall_xy_bounds(temp_slices_dict)
@@ -197,20 +198,30 @@ class SliceProcessingThread(QThread):
                                                       Qt.TransformationMode.SmoothTransformation)
                         self.thumbnail_ready.emit(i, scaled_pixmap, metadata)
                     except Exception as qimage_err:
-                        print(f"ERROR: QImage/QPixmap failed: {qimage_err}"); placeholder_pixmap = QPixmap(
-                            self.thumbnail_size); placeholder_pixmap.fill(
-                            Qt.GlobalColor.darkRed); self.thumbnail_ready.emit(i, placeholder_pixmap, metadata)
+                        print(f"ERROR: QImage/QPixmap failed: {qimage_err}");
+                        placeholder_pixmap = QPixmap(
+                            self.thumbnail_size);
+                        placeholder_pixmap.fill(
+                            Qt.GlobalColor.darkRed);
+                        self.thumbnail_ready.emit(i, placeholder_pixmap, metadata)
                 else:
-                    placeholder_pixmap = QPixmap(self.thumbnail_size); placeholder_pixmap.fill(
-                        Qt.GlobalColor.lightGray); painter = QPainter(placeholder_pixmap); painter.drawText(
+                    placeholder_pixmap = QPixmap(self.thumbnail_size);
+                    placeholder_pixmap.fill(
+                        Qt.GlobalColor.lightGray);
+                    painter = QPainter(placeholder_pixmap);
+                    painter.drawText(
                         placeholder_pixmap.rect(), Qt.AlignmentFlag.AlignCenter,
-                        f"Slice {i}\n(Empty)"); painter.end(); self.thumbnail_ready.emit(i, placeholder_pixmap,
-                                                                                         metadata)
+                        f"Slice {i}\n(Empty)");
+                    painter.end();
+                    self.thumbnail_ready.emit(i, placeholder_pixmap,
+                                              metadata)
             self.finished.emit(True)
         except InterruptedError:
-            print("INFO: Slice thread stopped."); self.finished.emit(False)
+            print("INFO: Slice thread stopped.");
+            self.finished.emit(False)
         except Exception as e:
-            print(f"ERROR: Slice thread error: {e}"); self.finished.emit(False)
+            print(f"ERROR: Slice thread error: {e}");
+            self.finished.emit(False)
 
     def stop(self):
         self._is_running = False
@@ -271,9 +282,11 @@ class DensityProcessingThread(QThread):
                 self.density_map_ready.emit(index, density_matrix, heatmap_pixmap, density_params)
             self.finished.emit(True)
         except InterruptedError:
-            print("INFO: Density thread stopped."); self.finished.emit(False)
+            print("INFO: Density thread stopped.");
+            self.finished.emit(False)
         except Exception as e:
-            print(f"ERROR: Density thread error: {e}"); self.finished.emit(False)
+            print(f"ERROR: Density thread error: {e}");
+            self.finished.emit(False)
 
     def stop(self):
         self._is_running = False
@@ -400,9 +413,13 @@ class BatchSliceViewerWindow(QWidget):
             plotter_layout.addWidget(self.plotter)
             QTimer.singleShot(200, self._initialize_plotter_view)
         except Exception as e:
-            print(f"ERROR: Failed to create QtInteractor: {e}"); self.plotter = None; error_label = QLabel(
-                f"无法初始化3D视图。\n错误: {e}"); error_label.setAlignment(
-                Qt.AlignmentFlag.AlignCenter); plotter_layout.addWidget(error_label)
+            print(f"ERROR: Failed to create QtInteractor: {e}");
+            self.plotter = None;
+            error_label = QLabel(
+                f"无法初始化3D视图。\n错误: {e}");
+            error_label.setAlignment(
+                Qt.AlignmentFlag.AlignCenter);
+            plotter_layout.addWidget(error_label)
         self.center_stacked_widget.addWidget(self.plotter_widget)
         # Page 1: 2D Density View
         self.density_view_label = QLabel("请先计算密度图");
@@ -665,7 +682,7 @@ class BatchSliceViewerWindow(QWidget):
             QMessageBox.warning(self, "无切片", "请先生成切片数据。")
             return
         if self.density_processing_thread and self.density_processing_thread.isRunning():
-            QMessageBox.warning(self,"处理中","正在计算密度图...")
+            QMessageBox.warning(self, "处理中", "正在计算密度图...")
             return
         self.density_matrices.clear()
         self.density_pixmaps.clear()
@@ -922,17 +939,6 @@ class BatchSliceViewerWindow(QWidget):
             print("INFO: Canceling density processing...")
             self.density_processing_thread.stop()
             thread_stopped = True
-        # Also stop batch op thread if added later
-        # if self.batch_op_thread and self.batch_op_thread.isRunning():
-        #     print("INFO: Canceling batch operation processing...")
-        #     self.batch_op_thread.stop()
-        #     thread_stopped = True
-
-        # If cancellation came from progress dialog, it handles itself
-        # If cancellation came from closeEvent, we might need to update UI state if thread was stopped
-        # if thread_stopped and self.progress_dialog and not self.progress_dialog.wasCanceled():
-        # Optionally update UI to reflect cancellation initiated elsewhere
-        # pass
 
     def _collect_slice_data(self, index, slice_data, height_range):
         """Collect slice data from the thread."""
@@ -1366,7 +1372,7 @@ class BatchSliceViewerWindow(QWidget):
                     if 'colors' in slice_data_pv.point_data:
                         colors = slice_data_pv['colors']
                         o3d_pcd.colors = o3d.utility.Vector3dVector(colors.astype(np.float64))
-                    if o3d.io.write_point_cloud(pcd_filename, o3d_pcd, False, True):
+                    if o3d.io.write_point_cloud(pcd_filename, o3d_pcd, 'auto', False, True):
                         pcd_saved = True
                         exported_pcd_count += 1
                 except Exception as pcd_err:
