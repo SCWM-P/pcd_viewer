@@ -2,3 +2,4 @@ samples/one_floor.pcd
 .idea/
 __pycache__/
 batch_slice_output/
+line_detection_output/
