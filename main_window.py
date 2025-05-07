@@ -5,7 +5,8 @@ import traceback
 import cv2
 import numpy as np
 from PyQt6.QtWidgets import (QMainWindow, QVBoxLayout, QHBoxLayout, QWidget,
-                             QFileDialog, QSplitter, QStatusBar, QMessageBox)
+                             QFileDialog, QSplitter, QStatusBar, QMessageBox,
+                             QProgressDialog, QApplication)
 from PyQt6.QtCore import Qt
 from pyvistaqt import QtInteractor, MainWindow
 from . import DEBUG_MODE
@@ -19,6 +20,7 @@ from .utils.visualization import VisualizationManager
 from .utils.stylesheet_manager import StylesheetManager
 from .ui.line_detection_dialog import LineDetectionDialog
 from .ui.batch_slice_viewer_window import BatchSliceViewerWindow
+from .utils.point_cloud_handler import PointCloudHandler, LoadPointCloudThread
 
 
 class PCDViewerWindow(MainWindow):
@@ -50,11 +52,13 @@ class PCDViewerWindow(MainWindow):
         # --- 应用样式 ---
         self.setStyleSheet(StylesheetManager.get_light_theme())
 
+        # --- 初始化文件加载线程 ---
+        self.load_thread = None
+        self.loading_progress_dialog = None
+
         # --- 初始化显示 ---
-        try:
-            self.load_pcd_file(os.path.join(os.path.dirname(__file__), "samples", "one_floor.pcd"))
-        except Exception as e:
-            self.statusBar.showMessage(f"Error loading initial file: {str(e)}")
+        try: self.load_pcd_file(os.path.join(os.path.dirname(__file__), "samples", "one_floor.pcd"))
+        except Exception as e: self.statusBar.showMessage(f"Error loading initial file: {str(e)}")
 
     def setup_ui(self):
         """创建用户界面"""
@@ -107,13 +111,95 @@ class PCDViewerWindow(MainWindow):
         self.statusBar.showMessage("视图已重置")
 
     def open_pcd_file(self):
-        """打开PCD文件对话框"""
+        """打开PCD文件对话框，使用后台线程加载"""
+        if self.load_thread and self.load_thread.isRunning():
+            QMessageBox.warning(self, "正在加载", "另一个文件正在加载中，请稍候。")
+            return
+
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "选择点云文件", "",
-            "点云文件 (*.pcd *.ply *.xyz *.pts *.txt);;所有文件 (*)"
+            self, "选择点云文件", "", "点云文件 (*.pcd *.ply *.xyz *.pts *.txt);;所有文件 (*)"
         )
         if file_path:
-            self.load_pcd_file(file_path)
+            self.current_file_path_for_load = file_path  # Store for callback
+            self.statusBar.showMessage(f"开始加载: {os.path.basename(file_path)}...")
+
+            # --- Show Busy Indicator ---
+            self.loading_progress_dialog = QProgressDialog(
+                f"正在加载\n{os.path.basename(file_path)}...\n请稍候。",
+                "取消", 0, 0, self  # 0, 0 creates a busy indicator
+            )
+            self.loading_progress_dialog.resize(300, 120)
+            self.loading_progress_dialog.setWindowTitle("加载点云")
+            self.loading_progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+            self.loading_progress_dialog.canceled.connect(self._cancel_loading)
+            self.loading_progress_dialog.show()
+            QApplication.processEvents()  # Ensure dialog shows up
+
+            # --- Start loading in background thread ---
+            self.load_thread = LoadPointCloudThread(file_path)
+            self.load_thread.finished_loading.connect(self._on_loading_finished)
+            self.load_thread.error_occurred.connect(self._on_loading_error)
+            # Connect finished signal for cleanup if thread ends for any reason
+            self.load_thread.finished.connect(self._loading_thread_cleanup)
+            self.load_thread.start()
+
+    def _cancel_loading(self):
+        """Slot to cancel the loading thread."""
+        if self.load_thread and self.load_thread.isRunning():
+            if DEBUG_MODE: print("DEBUG: User cancelled loading.")
+            self.load_thread.stop()  # Signal the thread to stop
+            # Progress dialog will close automatically on cancel
+            self.statusBar.showMessage("加载已取消。")
+        self.loading_progress_dialog = None  # Clear dialog reference
+
+    def _loading_thread_cleanup(self):
+        """Called when the loading thread finishes, regardless of success."""
+        if DEBUG_MODE: print("DEBUG: _loading_thread_cleanup called.")
+        if self.loading_progress_dialog:
+            try:
+                self.loading_progress_dialog.close()
+            except RuntimeError:  # Dialog might already be closed
+                pass
+            self.loading_progress_dialog = None
+        self.load_thread = None  # Clear thread reference
+
+    def _on_loading_finished(self, point_cloud_pv, bounds, point_count, filename):
+        """Slot called when point cloud is successfully loaded by the thread."""
+        if DEBUG_MODE: print(f"DEBUG: _on_loading_finished for {filename}")
+
+        self.point_cloud = point_cloud_pv
+        self.pcd_bounds = bounds
+        self.current_file_name = filename  # Update with the successfully loaded filename
+
+        self.statusBar.showMessage(f"已加载: {filename}, {point_count} 点")
+
+        if self.point_cloud is not None and self.point_cloud.n_points > 0:
+            points_z = self.point_cloud.points[:, 2]
+            if hasattr(self, 'sidebar_builder') and self.sidebar_builder.height_dist_widget:
+                self.sidebar_builder.height_dist_widget.set_histogram_data(points_z)
+            self.update_thickness_indicator()
+        else:
+            if hasattr(self, 'sidebar_builder') and self.sidebar_builder.height_dist_widget:
+                self.sidebar_builder.height_dist_widget.set_histogram_data(None)
+
+        self.update_visualization()
+        self.update_info_panel()
+        # _loading_thread_cleanup will be called via thread's finished signal
+
+    def _on_loading_error(self, error_message, filename):
+        """Slot called when an error occurs during loading in the thread."""
+        if DEBUG_MODE: print(f"DEBUG: _on_loading_error for {filename}: {error_message}")
+        self.statusBar.showMessage(f"加载文件 {filename} 失败: {error_message}")
+        QMessageBox.critical(self, "加载错误", f"无法加载文件 {filename}:\n{error_message}")
+        self.point_cloud = None
+        self.pcd_bounds = None
+        self.current_file_name = ""  # Reset
+        # Update UI to reflect no cloud loaded
+        if hasattr(self, 'sidebar_builder') and self.sidebar_builder.height_dist_widget:
+            self.sidebar_builder.height_dist_widget.set_histogram_data(None)
+        self.plotter.clear()
+        self.update_info_panel()
+        # _loading_thread_cleanup will be called
 
     def load_pcd_file(self, file_path):
         """加载点云文件"""

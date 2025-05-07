@@ -4,6 +4,7 @@ import pyvista as pv
 import os
 import pandas as pd
 import traceback
+from PyQt6.QtCore import QThread, pyqtSignal
 from .. import DEBUG_MODE
 
 
@@ -177,3 +178,43 @@ class PointCloudHandler:
             "has_colors": 'colors' in point_cloud.point_data
         }
         return info
+
+class LoadPointCloudThread(QThread):
+    finished_loading = pyqtSignal(object, object, int, str) # pv.PolyData, bounds_tuple, count, filename
+    error_occurred = pyqtSignal(str, str) # error_message, filename
+
+    def __init__(self, file_path, parent=None):
+        super().__init__(parent)
+        self.file_path = file_path
+        self._is_running = True
+
+    def run(self):
+        if DEBUG_MODE: print(f"DEBUG: LoadPointCloudThread started for {self.file_path}")
+        try:
+            point_cloud_pv, bounds, point_count = PointCloudHandler.load_from_file(self.file_path)
+
+            if not self._is_running: # Check if cancelled during loading
+                if DEBUG_MODE: print(f"DEBUG: LoadPointCloudThread for {self.file_path} cancelled during load.")
+                self.error_occurred.emit("加载已取消。", os.path.basename(self.file_path))
+                return
+
+            if point_cloud_pv is not None:
+                if DEBUG_MODE: print(f"DEBUG: LoadPointCloudThread successfully loaded {self.file_path}")
+                self.finished_loading.emit(point_cloud_pv, bounds, point_count, os.path.basename(self.file_path))
+            else:
+                if DEBUG_MODE: print(f"DEBUG: LoadPointCloudThread: PointCloudHandler.load_from_file returned no data for {self.file_path}")
+                self.error_occurred.emit(f"无法加载文件或文件为空: {os.path.basename(self.file_path)}", os.path.basename(self.file_path))
+
+        except RuntimeError as e: # Catch RuntimeErrors raised by load_from_file for more severe issues
+            if DEBUG_MODE: print(f"ERROR: LoadPointCloudThread: RuntimeError during loading {self.file_path}: {e}")
+            if self._is_running: self.error_occurred.emit(str(e), os.path.basename(self.file_path))
+        except Exception as e:
+            if DEBUG_MODE:
+                print(f"ERROR: LoadPointCloudThread: Unhandled exception during loading {self.file_path}: {e}")
+                traceback.print_exc()
+            if self._is_running:
+                 self.error_occurred.emit(f"加载时发生未知错误: {e}", os.path.basename(self.file_path))
+
+    def stop(self):
+        self._is_running = False
+        if DEBUG_MODE: print(f"DEBUG: LoadPointCloudThread for {self.file_path} stop requested.")

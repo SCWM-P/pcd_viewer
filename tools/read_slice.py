@@ -17,7 +17,7 @@ class SliceDataReader:
     读取 pcd_viewer/batch_slice_output/ 目录下特定批次导出结果的工具类。
     """
 
-    def __init__(self, export_batch_dir):
+    def __init__(self, export_batch_dir=Path(r"./batch_slice_output/")):
         """
         初始化读取器。
 
