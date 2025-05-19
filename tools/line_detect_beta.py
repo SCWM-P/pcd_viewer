@@ -453,7 +453,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config",
         type=str,
-        default=str(current_dir / "line_detect_configs" / "default_params.json"),  # Default config
+        default=str(current_dir / "configs" / "default_params.json"),  # Default config
         help="指向参数配置文件的路径 (JSON格式)。"
     )
     # Optional: Add arguments to override specific config values, e.g., --algorithm, --slice_index
@@ -465,7 +465,7 @@ if __name__ == "__main__":
     if not Path(args.config).exists():
         print(f"错误: 配置文件 '{args.config}' 未找到。请确保路径正确，或创建一个。")
         print("将尝试使用默认路径下的 'default_params.json' (如果存在)。")
-        default_config_path = current_dir / "line_detect_configs" / "default_params.json"
+        default_config_path = current_dir / "configs" / "default_params.json"
         args.config = str(default_config_path)
     main(args.config)
     # Clean up any remaining OpenCV windows if script ends without waitKey(0) in main

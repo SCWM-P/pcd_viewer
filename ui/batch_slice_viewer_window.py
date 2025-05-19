@@ -24,7 +24,7 @@ from ..utils.geometry_utils import calculate_global_xy_bounds
 from ..utils.slice_handler import render_slice_to_image, create_density_heatmap
 
 
-# --- Background Threads (Remain the same logic, ensure correct parameters passed) ---
+# --- Background Threads ---
 class SliceProcessingThread(QThread):
     # ... (Signals remain the same) ...
     progress = pyqtSignal(int, str)
@@ -48,7 +48,6 @@ class SliceProcessingThread(QThread):
 
     # noinspection PyUnresolvedReferences
     def run(self):
-        # ... (Implementation remains the same logic as previous correct version) ...
         if DEBUG_MODE: print("DEBUG: SliceProcessingThread run started.")
         if self.point_cloud is None or self.num_slices <= 0 or self.thickness_param <= 0:
             self.finished.emit(False)
@@ -205,10 +204,10 @@ class DensityProcessingThread(QThread):
                 self.density_map_ready.emit(index, density_matrix, heatmap_pixmap, density_params)
             self.finished.emit(True)
         except InterruptedError:
-            print("INFO: Density thread stopped.");
+            print("INFO: Density thread stopped.")
             self.finished.emit(False)
         except Exception as e:
-            print(f"ERROR: Density thread error: {e}");
+            print(f"ERROR: Density thread error: {e}")
             self.finished.emit(False)
 
     def stop(self):
@@ -240,6 +239,7 @@ class BatchSliceViewerWindow(QWidget):
         # Add more as needed
     }
 
+    # noinspection PyUnresolvedReferences
     def __init__(self, point_cloud, source_filename="Unknown", parent=None):
         super().__init__(parent)
         if DEBUG_MODE: print("DEBUG: BatchSliceViewerWindow __init__ started.")
@@ -295,6 +295,7 @@ class BatchSliceViewerWindow(QWidget):
         self.splitter.setSizes([280, 600, 300])  # Adjusted sizes
         if DEBUG_MODE: print("DEBUG: BatchSliceViewerWindow setup_ui finished.")
 
+    # noinspection PyUnresolvedReferences
     def setup_left_panel(self):
         # ... (List widget setup remains the same, connects _show_list_context_menu) ...
         left_panel = QWidget()
@@ -328,57 +329,57 @@ class BatchSliceViewerWindow(QWidget):
 
     def setup_center_panel(self):
         # ... (Stacked widget setup remains the same) ...
-        center_panel = QWidget();
-        center_layout = QVBoxLayout(center_panel);
+        center_panel = QWidget()
+        center_layout = QVBoxLayout(center_panel)
         center_layout.setContentsMargins(0, 0, 0, 0)
-        self.center_stacked_widget = QStackedWidget();
+        self.center_stacked_widget = QStackedWidget()
         center_layout.addWidget(self.center_stacked_widget)
         # Page 0: 3D Plotter
         self.plotter_widget = QWidget();
-        plotter_layout = QVBoxLayout(self.plotter_widget);
+        plotter_layout = QVBoxLayout(self.plotter_widget)
         plotter_layout.setContentsMargins(0, 0, 0, 0)
         if DEBUG_MODE: print("DEBUG: BatchSliceViewerWindow setup_ui - Creating QtInteractor...")
         try:
-            self.plotter = QtInteractor(parent=self.plotter_widget);
+            self.plotter = QtInteractor(parent=self.plotter_widget)
             plotter_layout.addWidget(self.plotter)
             QTimer.singleShot(200, self._initialize_plotter_view)
         except Exception as e:
-            print(f"ERROR: Failed to create QtInteractor: {e}");
-            self.plotter = None;
+            print(f"ERROR: Failed to create QtInteractor: {e}")
+            self.plotter = None
             error_label = QLabel(
-                f"无法初始化3D视图。\n错误: {e}");
+                f"无法初始化3D视图。\n错误: {e}")
             error_label.setAlignment(
-                Qt.AlignmentFlag.AlignCenter);
+                Qt.AlignmentFlag.AlignCenter)
             plotter_layout.addWidget(error_label)
         self.center_stacked_widget.addWidget(self.plotter_widget)
         # Page 1: 2D Density View
-        self.density_view_label = QLabel("请先计算密度图");
-        self.density_view_label.setAlignment(Qt.AlignmentFlag.AlignCenter);
+        self.density_view_label = QLabel("请先计算密度图")
+        self.density_view_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.density_view_label.setScaledContents(False)
         self.center_stacked_widget.addWidget(self.density_view_label)
         self.splitter.addWidget(center_panel)
 
     # noinspection PyUnresolvedReferences
     def setup_right_panel(self):
-        # ... (Tab widget setup remains the same) ...
-        right_panel = QWidget();
-        right_panel.setMinimumWidth(300);
-        right_panel.setMaximumWidth(450);
-        right_layout = QVBoxLayout(right_panel);
+        right_panel = QWidget()
+        right_panel.setMinimumWidth(300)
+        right_panel.setMaximumWidth(450)
+        right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(5, 5, 5, 5)
-        self.right_tab_widget = QTabWidget();
+        self.right_tab_widget = QTabWidget()
         right_layout.addWidget(self.right_tab_widget)
-        view_control_tab = QWidget();
-        vc_layout = QVBoxLayout(view_control_tab);
-        self.setup_view_control_tab(vc_layout);
+        view_control_tab = QWidget()
+        vc_layout = QVBoxLayout(view_control_tab)
+        self.setup_view_control_tab(vc_layout)
         self.right_tab_widget.addTab(view_control_tab, "视图控制")
-        density_tab = QWidget();
-        density_layout = QVBoxLayout(density_tab);
-        self.setup_density_analysis_tab(density_layout);
+        density_tab = QWidget()
+        density_layout = QVBoxLayout(density_tab)
+        self.setup_density_analysis_tab(density_layout)
         self.right_tab_widget.addTab(density_tab, "密度分析")
         self.right_tab_widget.currentChanged.connect(self._handle_tab_change)
         self.splitter.addWidget(right_panel)
 
+    # noinspection PyUnresolvedReferences
     def setup_view_control_tab(self, layout):
         # ... (Implementation remains the same) ...
         slicing_group = QGroupBox("切片参数")
@@ -441,6 +442,7 @@ class BatchSliceViewerWindow(QWidget):
         close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn)
 
+    # noinspection PyUnresolvedReferences
     def setup_density_analysis_tab(self, layout):
         """Populates the 'Density Analysis' tab with refined controls."""
         # Density Calculation Group
@@ -561,6 +563,7 @@ class BatchSliceViewerWindow(QWidget):
             print(f"ERROR: Plotter init failed: {e}")
 
     # --- Processing ---
+    # noinspection PyUnresolvedReferences
     def _start_slice_processing(self):
         # ... (Reset logic added previously remains) ...
         if self.plotter is None or self.original_point_cloud is None or self.original_point_cloud.n_points == 0 or (

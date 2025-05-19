@@ -316,7 +316,6 @@ def create_density_heatmap(density_matrix, colormap_name='viridis', vmin=None, v
         norm = mcolors.Normalize(vmin=current_vmin, vmax=current_vmax, clip=True)
         normalized_matrix = norm(density_matrix)
         # 3. 应用颜色映射得到 RGBA 数组 (范围 0-1 float)
-        # cmap() 返回 (H, W, 4) 的 RGBA 数组，每个通道值在 [0,1]
         colored_matrix_float = cmap(normalized_matrix)
         # 4. 转换为 uint8 数组 (范围 0-255)
         heatmap_rgba_array = (colored_matrix_float * 255).astype(np.uint8)

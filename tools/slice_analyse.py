@@ -10,6 +10,7 @@ import sys
 import cv2
 import os
 from tqdm import tqdm
+
 matplotlib.use('QtAgg')
 
 current_dir = Path(__file__).resolve().parent
@@ -143,13 +144,10 @@ def display_images(image_dict, main_title="图像处理流程"):
 def run_slice_analysis(
         batch_export_dir_path,
         original_pcd_path,
-        slice_index_to_process,
+        slice_index_to_process: int = None,
         output_resolution: int = 1024,
-        density_colormap='viridis',
-        morph_kernel_size: [int, list] = 5,
-        morph_operations=None,  # 例如: [('erode', 1), ('dilate', 1)] 表示先腐蚀1次，再膨胀1次
-        prob_morph_sensitivity=2.0,
-        prob_morph_bias=1.0
+        density_colormap: str = 'viridis',
+        morph_operations: list = None,
 ):
     """
     执行完整的切片分析工作流程。
@@ -180,18 +178,14 @@ def run_slice_analysis(
         return
 
     # 获取要处理的切片位图
-    target_slice_bitmap_rgb = reader.get_bitmap(slice_index_to_process)
-    if target_slice_bitmap_rgb is None:
-        print(f"错误: 在导出的数据中未找到索引为 {slice_index_to_process} 的位图。")
+    target_slice_density_matrix = reader.get_density_matrix(slice_index_to_process)
+    if target_slice_density_matrix is None:
+        print(f"错误: 在导出的数据中未找到索引为 {slice_index_to_process} 的密度矩阵。")
         print(f"可用切片索引: {reader.get_all_indices()}")
         return
-
-    # 将读取的RGB位图转换为BGR以匹配OpenCV的常见输入，再转灰度
-    target_slice_bitmap_bgr = cv2.cvtColor(target_slice_bitmap_rgb, cv2.COLOR_RGB2BGR)
-    slice_gray = cv2.cvtColor(target_slice_bitmap_bgr, cv2.COLOR_BGR2GRAY)
-    _, slice_binary_original = cv2.threshold(slice_gray, 254, 255, cv2.THRESH_BINARY)
-    images_to_display = {"原始切片位图 (二值化)": slice_binary_original.copy()}
-    if DEBUG_MODE: print(f"成功加载切片 {slice_index_to_process} 的位图，形状: {target_slice_bitmap_rgb.shape}")
+    if DEBUG_MODE: print(f"成功加载切片 {slice_index_to_process} 的密度矩阵，形状: {target_slice_density_matrix.shape}")
+    slice_binary_original = np.where(target_slice_density_matrix > 0, 0, 255).astype(np.uint8)
+    images_to_display = {"原始切片密度矩阵 (二值化)": slice_binary_original.copy()}
 
     # --- 2. 加载原始点云PCD，计算整体密度信息 ---
     print(f"\n--- 正在从 '{original_pcd_path}' 加载原始点云以计算整体密度 ---")
@@ -222,7 +216,8 @@ def run_slice_analysis(
         range=[[xmin, xmax], [ymin, ymax]]
     )
     # 对齐方向 (0,0 左上, Y向下)
-    overall_aligned_density_matrix = np.flipud(overall_density_matrix_hist.T)
+    # overall_aligned_density_matrix = np.flipud(overall_density_matrix_hist.T)
+    overall_aligned_density_matrix = overall_density_matrix_hist
     den_min_overall = np.min(overall_aligned_density_matrix)
     den_max_overall = np.max(overall_aligned_density_matrix)
     print(f"{output_resolution}x{output_resolution} 的整体密度矩阵计算完成。")
@@ -233,15 +228,14 @@ def run_slice_analysis(
         vmin=den_min_overall, vmax=den_max_overall
     )
     if overall_density_heatmap is not None:
-        images_to_display["整体密度热力图"] = overall_density_heatmap  # imshow可以直接显示RGBA
+        images_to_display["整体密度热力图"] = overall_density_heatmap
         # 如果要用 OpenCV 保存，需要转换
         # cv2.imwrite("overall_density_heatmap.png", cv2.cvtColor(overall_density_heatmap_rgba, cv2.COLOR_RGBA2BGRA))
 
     # --- 3. 对指定切片投影位图做基于密度和概率的形态学操作 ---
     # 确保切片位图与密度图尺寸一致
     if slice_binary_original.shape != (output_resolution, output_resolution):
-        print(
-            f"警告: 切片位图尺寸 {slice_binary_original.shape} 与期望分辨率 {(output_resolution, output_resolution)} 不匹配。")
+        print(f"警告: 切片位图尺寸 {slice_binary_original.shape} 与期望分辨率 {(output_resolution, output_resolution)} 不匹配。")
         print("将对切片位图进行缩放以匹配密度矩阵。")
         slice_binary_resized = cv2.resize(
             slice_binary_original,
@@ -254,23 +248,13 @@ def run_slice_analysis(
         current_processed_image = slice_binary_original.copy()
 
     # --- 4. 可控的多轮形态学操作框架 ---
-    if morph_operations is None:
-        morph_operations = [
-            {'type': 'erode', 'rounds': 1, 'kernel_size': morph_kernel_size,
-             'sensitivity': prob_morph_sensitivity, 'bias': prob_morph_bias,
-             'activation': 'x_cubed'},
-            {'type': 'dilate', 'rounds': 1, 'kernel_size': morph_kernel_size,
-             'sensitivity': prob_morph_sensitivity, 'bias': prob_morph_bias,
-             'activation': 'x_cubed'}
-        ]
-
+    assert morph_operations is not None, "形态学操作参数未指定!"
     print("\n--- 开始多轮概率形态学操作 ---")
     activation_functions = {
         'x_cubed': lambda x: x ** 3,
         'linear': lambda x: x,
         'x_squared': lambda x: x ** 2,
     }
-
     for i, op_details in enumerate(morph_operations):
         op_type = op_details['type']
         rounds = op_details.get('rounds', 1)
@@ -279,7 +263,6 @@ def run_slice_analysis(
         bias = op_details.get('bias', 1.0)
         activation_str = op_details.get('activation', 'x_cubed')
         activation_func = activation_functions.get(activation_str, lambda x: x ** 3)
-
         kernel = np.ones((k_size, k_size), np.uint8)  # Simple square kernel
         # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_size,k_size)) # Elliptical
 
@@ -292,7 +275,7 @@ def run_slice_analysis(
             if DEBUG_MODE: print(f"轮次 {r + 1}/{rounds}...")
             current_processed_image = probabilistic_morphology_op(
                 current_processed_image,  # 输入是上一轮的结果
-                overall_aligned_density_matrix,  # 始终使用整体密度
+                overall_aligned_density_matrix,
                 kernel,
                 operation_type=op_type,
                 activation_func=activation_func,
@@ -305,29 +288,11 @@ def run_slice_analysis(
         images_to_display[f"操作组{i + 1}后 ({op_type.capitalize()} {rounds}轮)"] = current_processed_image.copy()
     print("概率形态学操作完成。")
 
-    # --- 5. 可视化 ---
-    final_result_overlay = cv2.cvtColor(current_processed_image, cv2.COLOR_GRAY2BGR)
-    # 将原始彩色切片位图的颜色应用到处理后的结构上
-    # Create a mask from the processed image (where structure is white)
-    structure_mask = current_processed_image > 0
-    # Resize original RGB bitmap if it was resized earlier
-    if target_slice_bitmap_rgb.shape[0:2] != (output_resolution, output_resolution):
-        original_rgb_resized = cv2.resize(
-            target_slice_bitmap_rgb,
-            (output_resolution, output_resolution),
-            interpolation=cv2.INTER_LINEAR
-        )
-    else:
-        original_rgb_resized = target_slice_bitmap_rgb
-
-    final_result_overlay[structure_mask] = original_rgb_resized[structure_mask]
-    images_to_display["最终结果 (叠加原图颜色)"] = final_result_overlay
-
     display_images(images_to_display, f"切片 {slice_index_to_process} 分析结果")
     # Optionally save the final image
     if args.output_image_path:
         Path.mkdir(Path(args.output_image_path).parent, exist_ok=True)
-        cv2.imwrite(args.output_image_path, cv2.cvtColor(final_result_overlay, cv2.COLOR_RGB2BGR))
+        cv2.imwrite(args.output_image_path, current_processed_image)
         print(f"\n执行完成！结果图像已保存到 {args.output_image_path}")
 
 
@@ -355,7 +320,7 @@ if __name__ == "__main__":
         help="密度图的栅格分辨率 (例如: 512 表示 512x512)，默认: 1024"
     )
     parser.add_argument(
-        "--config_file", type=str, default=None,
+        "--config_file", type=str, default=project_root / "tools" / "configs" / "morph_config.json",
         help="可选的JSON配置文件路径，用于指定形态学操作序列和参数。"
     )
     parser.add_argument(
@@ -363,7 +328,7 @@ if __name__ == "__main__":
         help="Matplotlib 颜色映射方案 (例如: viridis, plasma, inferno, magma, cividis, jet, hot), 默认: viridis"
     )
     parser.add_argument(
-        "--output_image_path", type=str, default= project_root / "img_output" / "prob_morph_final_output.png",
+        "--output_image_path", type=str, default=project_root / "img_output" / "prob_morph_final_output.png",
         help="最终处理结果图像的保存路径。"
     )
     parser.add_argument(
@@ -427,12 +392,11 @@ if __name__ == "__main__":
         print(f"错误: 无法确定或找到原始点云文件 '{original_pcd_for_density}' 用于密度计算。请使用 --pcd_file 参数指定。")
         sys.exit(1)
 
-    # --- 加载形态学操作配置 ---
+    # --- 尝试从文件加载形态学操作配置 ---
     morph_ops_list = None
     prob_sens = 2.0
     prob_bias = 1.0
     kernel_sz = 5
-
     if args.config_file:
         if Path(args.config_file).exists():
             try:
@@ -448,15 +412,7 @@ if __name__ == "__main__":
                 print(f"警告: 读取或解析形态学配置文件 '{args.config_file}' 失败: {e_cfg}")
         else:
             print(f"警告: 指定的形态学配置文件 '{args.config_file}' 未找到，将使用默认操作。")
-
-    if morph_ops_list is None:  # Fallback to default if not loaded from config
-        morph_ops_list = [
-            {'type': 'erode', 'rounds': 1, 'kernel_size': kernel_sz, 'sensitivity': prob_sens, 'bias': prob_bias,
-             'activation': 'x_cubed'},
-            {'type': 'dilate', 'rounds': 1, 'kernel_size': kernel_sz, 'sensitivity': prob_sens, 'bias': prob_bias,
-             'activation': 'x_cubed'}
-        ]
-        if DEBUG_MODE: print("使用默认形态学操作序列。")
+    assert morph_ops_list is not None, "形态学操作参数未指定，请使用 --config_file 指定配置文件"
 
     run_slice_analysis(
         target_batch_dir,
@@ -464,9 +420,6 @@ if __name__ == "__main__":
         args.slice_index,
         output_resolution=args.resolution,
         density_colormap=args.cmap,
-        morph_kernel_size=kernel_sz,  # This is now a default, individual ops can override
-        morph_operations=morph_ops_list,
-        prob_morph_sensitivity=prob_sens,  # Default, can be overridden by sequence
-        prob_morph_bias=prob_bias  # Default, can be overridden by sequence
+        morph_operations=morph_ops_list
     )
     # calculate_and_plot_density(args.pcd_file, args.resolution, args.cmap)

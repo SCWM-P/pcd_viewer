@@ -1,0 +1,23 @@
+{
+  "default_prob_sensitivity": 2,
+  "default_prob_bias": 1,
+  "default_prob_kernel_size": 3,
+  "probabilistic_morphology_sequence": [
+    {
+      "type": "erode",
+      "rounds": 1,
+      "kernel_size": 3,
+      "sensitivity": 3,
+      "bias": 0.5,
+      "activation": "x_squared"
+    },
+    {
+      "type": "dilate",
+      "rounds": 3,
+      "kernel_size": 5,
+      "sensitivity": 3,
+      "bias": 1,
+      "activation": "x_cubed"
+    }
+  ]
+}
