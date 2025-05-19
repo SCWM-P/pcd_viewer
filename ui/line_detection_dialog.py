@@ -275,7 +275,7 @@ class LineDetectionDialog(QWidget):
         self.continuous_detection = False
 
         # 从父窗口导入直线检测器
-        from ..utils.line_detection import LineDetectionManager
+        from ..utils.geometry_utils import LineDetectionManager
         self.line_manager = LineDetectionManager()
 
         self.setup_ui()
@@ -616,7 +616,6 @@ class LineDetectionDialog(QWidget):
             QMessageBox.critical(self, "导出错误", f"导出过程中发生错误:\n{str(e)}")
 
 
-# 修改 line_detection.py 中的 draw_detected_lines 函数，添加透明背景支持
 def draw_detected_lines(image, lines, color=(0, 255, 0), thickness=2, transparent_bg=False):
     """
     在图像上绘制检测到的直线

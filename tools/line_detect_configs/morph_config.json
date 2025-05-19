@@ -1,0 +1,30 @@
+{
+  "default_prob_sensitivity": 2.5,
+  "default_prob_bias": 0.8,
+  "default_prob_kernel_size": 3,
+  "probabilistic_morphology_sequence": [
+    {
+      "type": "erode",
+      "rounds": 2,
+      "kernel_size": 3,
+      "sensitivity": 2.0,
+      "bias": 0.7,
+      "activation": "x_cubed"
+    },
+    {
+      "type": "dilate",
+      "rounds": 1,
+      "kernel_size": 5,
+      "sensitivity": 1.8,
+      "bias": 1.1,
+      "activation": "x_squared"
+    },
+    {
+      "type": "erode", // 再进行一次更精细的腐蚀
+      "rounds": 1,
+      "kernel_size": 3,
+      "sensitivity": 3.0,
+      "bias": 0.5
+    }
+  ]
+}

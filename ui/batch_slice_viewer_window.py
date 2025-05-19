@@ -1,119 +1,27 @@
 # pcd_viewer/ui/batch_slice_viewer_window.py
 
-import os
-import json
 import datetime
-import numpy as np
-import pyvista as pv
+import json
+import os
 import cv2
-import open3d as o3d
 import matplotlib.pyplot as plt
+import numpy as np
+import open3d as o3d
+import pyvista as pv
+import traceback
+from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QTimer, QPoint
+from PyQt6.QtGui import QPixmap, QImage, QIcon, QPainter, QAction, QFontMetrics
 from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QListWidget,
                              QListWidgetItem, QPushButton, QSplitter, QGroupBox,
                              QLabel, QSpinBox, QDoubleSpinBox, QCheckBox, QFileDialog,
-                             QMessageBox, QAbstractItemView, QProgressBar, QSpacerItem,
-                             QSizePolicy, QProgressDialog, QApplication, QTabWidget,
-                             QComboBox, QStackedWidget, QMenu, QSlider, QFormLayout)  # Added/Verified imports
-from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QTimer, QPoint
-from PyQt6.QtGui import QPixmap, QImage, QIcon, QPainter, QColor, QAction, QFontMetrics  # Added QFontMetrics
+                             QMessageBox, QAbstractItemView, QProgressDialog, QApplication, QTabWidget,
+                             QComboBox, QStackedWidget, QMenu, QSlider, QFormLayout)
 from pyvistaqt import QtInteractor
 
-# 导入项目模块
-from ..utils.point_cloud_handler import PointCloudHandler
+from .. import DEBUG_MODE, BITMAP_EXPORT_RESOLUTION, DEFAULT_DENSITY_RESOLUTION
 from ..utils.stylesheet_manager import StylesheetManager
-from .. import DEBUG_MODE
-
-
-# --- Helper Functions (Remain the same as previous correct version) ---
-def get_overall_xy_bounds(slices_dict):
-    all_bounds_xy = []
-    valid_slice_found = False
-    for slice_data in slices_dict.values():
-        if slice_data is not None and slice_data.n_points > 0:
-            b = slice_data.bounds
-            if b[0] < b[1] and b[2] < b[3]:
-                all_bounds_xy.extend(b[0:4])
-                valid_slice_found = True
-    if not valid_slice_found or not all_bounds_xy: return None
-    xmin = min(all_bounds_xy[0::4])
-    xmax = max(all_bounds_xy[1::4])
-    ymin = min(all_bounds_xy[2::4])
-    ymax = max(all_bounds_xy[3::4])
-    x_range = xmax - xmin
-    y_range = ymax - ymin
-    padding = max(x_range * 0.05, y_range * 0.05, 0.1)
-    return [xmin - padding, xmax + padding, ymin - padding, ymax + padding]
-
-
-def render_slice_to_image(slice_data, size, overall_xy_bounds=None, is_thumbnail=True):
-    if DEBUG_MODE: print(f"DEBUG: render_slice_to_image called. is_thumbnail={is_thumbnail}, size={size}")
-    if slice_data is None or slice_data.n_points == 0: return None, {}
-    plotter = None
-    try:
-        img_width, img_height = size if isinstance(size, tuple) else (size.width(), size.height())
-        plotter = pv.Plotter(off_screen=True, window_size=[img_width, img_height])
-        plotter.set_background('white')
-        if is_thumbnail:
-            actor = plotter.add_mesh(slice_data, color='darkgrey', point_size=1)
-        else:
-            if 'colors' in slice_data.point_data:
-                actor = plotter.add_mesh(slice_data, scalars='colors', rgb=True, point_size=2)
-            else:
-                actor = plotter.add_mesh(slice_data, color='blue', point_size=2)
-        plotter.view_xy()
-        bounds_to_use = None
-        if overall_xy_bounds:
-            zmin = slice_data.bounds[4]
-            zmax = slice_data.bounds[5]
-            bounds_to_use = overall_xy_bounds + [zmin, zmax]
-        elif slice_data and slice_data.bounds[0] < slice_data.bounds[1]:
-            bounds_to_use = slice_data.bounds
-        if bounds_to_use: plotter.reset_camera(bounds=bounds_to_use)
-        img_np = plotter.screenshot(return_img=True)
-        cam = plotter.camera
-        view_params = {
-            "position": list(cam.position), "focal_point": list(cam.focal_point), "up": list(cam.up),
-            "parallel_projection": cam.parallel_projection, "parallel_scale": cam.parallel_scale,
-            "slice_bounds": list(slice_data.bounds), "render_window_size": [img_width, img_height],
-        }
-        return img_np, view_params
-    except Exception as e:
-        print(f"ERROR: Error rendering slice: {e}");
-        return None, {}
-    finally:
-        if plotter:
-            try:
-                plotter.close()
-            except Exception:
-                pass
-
-
-def create_density_heatmap(density_matrix, colormap_name='viridis', vmin=None, vmax=None):
-    # ... (Implementation remains the same as previous correct version) ...
-    if density_matrix is None or density_matrix.size == 0: return QPixmap()
-    try:
-        if vmin is None: vmin = np.min(density_matrix)
-        if vmax is None: vmax = np.max(density_matrix)
-        if vmax <= vmin: vmax = vmin + 1e-6
-        # Handle potential NaN values before normalization
-        nan_mask = np.isnan(density_matrix)
-        if np.any(nan_mask):
-            density_matrix[nan_mask] = vmin  # Replace NaN with min value
-
-        normalized_matrix = (density_matrix - vmin) / (vmax - vmin)
-        normalized_matrix = np.clip(normalized_matrix, 0, 1)
-        cmap = plt.get_cmap(colormap_name)
-        colored_matrix_rgba = cmap(normalized_matrix, bytes=True)
-        height, width, _ = colored_matrix_rgba.shape
-        image_data = np.require(colored_matrix_rgba, dtype=np.uint8, requirements='C')
-        q_img = QImage(image_data, width, height, width * 4, QImage.Format.Format_RGBA8888)
-        if q_img.isNull():
-            print("ERROR: create_density_heatmap - QImage failed.")
-            return QPixmap()
-        return QPixmap.fromImage(q_img)
-    except Exception as e:
-        print(f"ERROR: create_density_heatmap: {e}")
-        return QPixmap()
+from ..utils.geometry_utils import calculate_global_xy_bounds
+from ..utils.slice_handler import render_slice_to_image, create_density_heatmap
 
 
 # --- Background Threads (Remain the same logic, ensure correct parameters passed) ---
@@ -124,15 +32,21 @@ class SliceProcessingThread(QThread):
     thumbnail_ready = pyqtSignal(int, QPixmap, dict)
     finished = pyqtSignal(bool)
 
-    def __init__(self, point_cloud, num_slices, thickness, limit_thickness, thumbnail_size, parent=None):
+    def __init__(
+            self, point_cloud, num_slices, thickness,
+            limit_thickness, thumbnail_size,
+            global_xy_bounds, parent=None
+    ):
         super().__init__(parent)
         self.point_cloud = point_cloud
         self.num_slices = num_slices
         self.thickness_param = thickness
         self.limit_thickness = limit_thickness
         self.thumbnail_size = thumbnail_size
+        self.global_xy_bounds = global_xy_bounds
         self._is_running = True
 
+    # noinspection PyUnresolvedReferences
     def run(self):
         # ... (Implementation remains the same logic as previous correct version) ...
         if DEBUG_MODE: print("DEBUG: SliceProcessingThread run started.")
@@ -168,59 +82,56 @@ class SliceProcessingThread(QThread):
                 indices = np.where((all_points[:, 2] >= slice_start_z) & (all_points[:, 2] <= slice_end_z))[0]
                 height_ranges.append((slice_start_z, slice_end_z))
                 if len(indices) > 0:
-                    slice_points = all_points[indices];
+                    slice_points = all_points[indices]
                     slice_cloud = pv.PolyData(slice_points)
                     if has_colors: slice_cloud['colors'] = all_colors[indices]
-                    generated_slices.append(slice_cloud);
+                    generated_slices.append(slice_cloud)
                     self.slice_ready.emit(i, slice_cloud, (slice_start_z, slice_end_z))
                 else:
-                    generated_slices.append(None);
+                    generated_slices.append(None)
                     self.slice_ready.emit(i, None, (slice_start_z, slice_end_z))
                 current_start_z += step
             temp_slices_dict = {i: s for i, s in enumerate(generated_slices)}
-            overall_xy_bounds = get_overall_xy_bounds(temp_slices_dict)
             for i in range(self.num_slices):
                 if not self._is_running: raise InterruptedError("Stopped")
                 self.progress.emit(int((self.num_slices + i + 1) / total_steps * 100),
                                    f"缩略图 {i + 1}/{self.num_slices}")
                 slice_data = generated_slices[i]
-                img_np, view_params = render_slice_to_image(slice_data, self.thumbnail_size, overall_xy_bounds,
-                                                            is_thumbnail=True)
+                img_np, view_params = render_slice_to_image(
+                    slice_data, self.thumbnail_size, self.global_xy_bounds, is_thumbnail=True
+                )
                 metadata = {"index": i, "height_range": height_ranges[i], "view_params": view_params,
                             "is_empty": slice_data is None or slice_data.n_points == 0}
                 if img_np is not None:
                     try:
-                        h, w, ch = img_np.shape;
+                        h, w, ch = img_np.shape
                         image_data_bytes = img_np.tobytes()
                         q_img = QImage(image_data_bytes, w, h, w * ch, QImage.Format.Format_RGB888)
-                        pixmap = QPixmap.fromImage(q_img);
+                        pixmap = QPixmap.fromImage(q_img)
                         scaled_pixmap = pixmap.scaled(self.thumbnail_size, Qt.AspectRatioMode.KeepAspectRatio,
                                                       Qt.TransformationMode.SmoothTransformation)
                         self.thumbnail_ready.emit(i, scaled_pixmap, metadata)
                     except Exception as qimage_err:
-                        print(f"ERROR: QImage/QPixmap failed: {qimage_err}");
-                        placeholder_pixmap = QPixmap(
-                            self.thumbnail_size);
-                        placeholder_pixmap.fill(
-                            Qt.GlobalColor.darkRed);
+                        print(f"ERROR: QImage/QPixmap failed: {qimage_err}")
+                        placeholder_pixmap = QPixmap(self.thumbnail_size)
+                        placeholder_pixmap.fill(Qt.GlobalColor.darkRed)
                         self.thumbnail_ready.emit(i, placeholder_pixmap, metadata)
                 else:
-                    placeholder_pixmap = QPixmap(self.thumbnail_size);
+                    placeholder_pixmap = QPixmap(self.thumbnail_size)
                     placeholder_pixmap.fill(
-                        Qt.GlobalColor.lightGray);
-                    painter = QPainter(placeholder_pixmap);
+                        Qt.GlobalColor.lightGray)
+                    painter = QPainter(placeholder_pixmap)
                     painter.drawText(
                         placeholder_pixmap.rect(), Qt.AlignmentFlag.AlignCenter,
-                        f"Slice {i}\n(Empty)");
-                    painter.end();
-                    self.thumbnail_ready.emit(i, placeholder_pixmap,
-                                              metadata)
+                        f"Slice {i}\n(Empty)")
+                    painter.end()
+                    self.thumbnail_ready.emit(i, placeholder_pixmap, metadata)
             self.finished.emit(True)
         except InterruptedError:
-            print("INFO: Slice thread stopped.");
+            print("INFO: Slice thread stopped.")
             self.finished.emit(False)
         except Exception as e:
-            print(f"ERROR: Slice thread error: {e}");
+            print(f"ERROR: Slice thread error: {e}")
             self.finished.emit(False)
 
     def stop(self):
@@ -233,26 +144,26 @@ class DensityProcessingThread(QThread):
     density_map_ready = pyqtSignal(int, np.ndarray, QPixmap, dict)
     finished = pyqtSignal(bool)
 
-    def __init__(self, slices_dict, overall_xy_bounds, grid_resolution, colormap_name, parent=None):
-        super().__init__(parent);
-        self.slices_dict = slices_dict;
-        self.overall_xy_bounds = overall_xy_bounds
-        self.grid_resolution = grid_resolution;
-        self.colormap_name = colormap_name;
+    def __init__(self, slices_dict, global_xy_bounds, grid_resolution, colormap_name, parent=None):
+        super().__init__(parent)
+        self.slices_dict = slices_dict
+        self.global_xy_bounds = global_xy_bounds
+        self.grid_resolution = grid_resolution
+        self.colormap_name = colormap_name
         self._is_running = True
 
     # noinspection PyUnresolvedReferences
     def run(self):
         # ... (Implementation remains the same logic as previous correct version) ...
         if DEBUG_MODE: print("DEBUG: DensityProcessingThread run started.")
-        if not self.slices_dict or self.overall_xy_bounds is None: self.finished.emit(False); return
+        if not self.slices_dict or self.global_xy_bounds is None: self.finished.emit(False); return
         try:
-            xmin, xmax, ymin, ymax = self.overall_xy_bounds;
-            bins = [self.grid_resolution, self.grid_resolution];
+            xmin, xmax, ymin, ymax = self.global_xy_bounds
+            bins = [self.grid_resolution, self.grid_resolution]
             range_xy = [[xmin, xmax], [ymin, ymax]]
-            num_slices = len(self.slices_dict);
-            sorted_indices = sorted(self.slices_dict.keys());
-            max_density = 0;
+            num_slices = len(self.slices_dict)
+            sorted_indices = sorted(self.slices_dict.keys())
+            max_density = 0
             all_matrices = {}
             for i, index in enumerate(sorted_indices):
                 if not self._is_running: raise InterruptedError("Stopped")
@@ -261,7 +172,7 @@ class DensityProcessingThread(QThread):
                 if slice_data is not None and slice_data.n_points > 0:
                     points_xy = slice_data.points[:, 0:2]
                     density_matrix, _, _ = np.histogram2d(points_xy[:, 0], points_xy[:, 1], bins=bins, range=range_xy)
-                    all_matrices[index] = density_matrix;
+                    all_matrices[index] = density_matrix
                     current_max = np.max(density_matrix)
                     if current_max > max_density: max_density = current_max
                 else:
@@ -272,11 +183,23 @@ class DensityProcessingThread(QThread):
                 self.progress.emit(int(((num_slices + i + 1) / (num_slices * 2)) * 100),
                                    f"生成热力图 {index + 1}/{num_slices}")
                 density_matrix = all_matrices[index]
-                heatmap_pixmap = create_density_heatmap(density_matrix, self.colormap_name, vmin=0, vmax=max_density)
+                heatmap_rgba_np = create_density_heatmap(density_matrix, self.colormap_name, vmin=0, vmax=max_density)
+                heatmap_pixmap = QPixmap()  # Default empty
+                if heatmap_rgba_np is not None:
+                    try:
+                        h, w, ch = heatmap_rgba_np.shape
+                        if ch == 4: q_img = QImage(heatmap_rgba_np.data, w, h, w * 4, QImage.Format.Format_RGBA8888) # RGBA
+                        elif ch == 3: q_img = QImage(heatmap_rgba_np.data, w, h, w * 3, QImage.Format.Format_RGB888) # RGB
+                        else: raise ValueError(f"热力图数组通道数不正确: {heatmap_rgba_np.shape}")
+                        if q_img.isNull(): print(f"ERROR: 从 NumPy 数组创建 QImage 失败 (索引 {index}).")
+                        else: heatmap_pixmap = QPixmap.fromImage(q_img)
+                    except Exception as e_img:
+                        print(f"ERROR: 将密度图 NumPy 数组转换为 QPixmap 时出错 (索引 {index}): {e_img}")
+                        if DEBUG_MODE: traceback.print_exc()
                 density_params = {
                     "grid_resolution": self.grid_resolution,
                     "colormap": self.colormap_name,
-                    "xy_bounds": self.overall_xy_bounds,
+                    "xy_bounds": self.global_xy_bounds,
                     "max_density_scale": float(max_density)
                 }  # Ensure max_density is float for JSON
                 self.density_map_ready.emit(index, density_matrix, heatmap_pixmap, density_params)
@@ -294,12 +217,16 @@ class DensityProcessingThread(QThread):
 
 # --- Main Window Class ---
 class BatchSliceViewerWindow(QWidget):
-    BITMAP_EXPORT_RESOLUTION = (1024, 1024)
-    DEFAULT_DENSITY_RESOLUTION = 512
     AVAILABLE_COLORMAPS = sorted(plt.colormaps())  # Get available matplotlib colormaps
     # Define diverging colormaps suitable for difference maps
-    DIVERGING_COLORMAPS = sorted([cm for cm in AVAILABLE_COLORMAPS if
-                                  cm.lower() in ['rdbu', 'bwr', 'coolwarm', 'seismic', 'piyg', 'prgn', 'brbg', 'puor']])
+    DIVERGING_COLORMAPS = sorted(
+        [
+            cm for cm in AVAILABLE_COLORMAPS if
+            cm.lower() in [
+                'rdbu', 'bwr', 'coolwarm', 'seismic', 'piyg', 'prgn', 'brbg', 'puor'
+            ]
+        ]
+    )
 
     # Define logic operations display names and corresponding numpy functions/lambda
     LOGIC_OPERATIONS = {
@@ -317,12 +244,15 @@ class BatchSliceViewerWindow(QWidget):
         super().__init__(parent)
         if DEBUG_MODE: print("DEBUG: BatchSliceViewerWindow __init__ started.")
         self.setWindowTitle("批量切片与密度分析器")  # Updated title
-        self.setMinimumSize(1150, 800)  # Slightly larger default size
+        self.setMinimumSize(1150, 800)
         self.setWindowFlags(Qt.WindowType.Window)
         self.setStyleSheet(StylesheetManager.get_light_theme())
 
         self.original_point_cloud = point_cloud
         self.source_filename = source_filename
+        self.BITMAP_EXPORT_RESOLUTION = BITMAP_EXPORT_RESOLUTION
+        self.DEFAULT_DENSITY_RESOLUTION = DEFAULT_DENSITY_RESOLUTION
+        self.global_xy_bounds = calculate_global_xy_bounds(self.original_point_cloud)
         # Data storage
         self.current_slices = {}
         self.slice_metadata = {}
@@ -428,6 +358,7 @@ class BatchSliceViewerWindow(QWidget):
         self.center_stacked_widget.addWidget(self.density_view_label)
         self.splitter.addWidget(center_panel)
 
+    # noinspection PyUnresolvedReferences
     def setup_right_panel(self):
         # ... (Tab widget setup remains the same) ...
         right_panel = QWidget();
@@ -634,6 +565,10 @@ class BatchSliceViewerWindow(QWidget):
         # ... (Reset logic added previously remains) ...
         if self.plotter is None or self.original_point_cloud is None or self.original_point_cloud.n_points == 0 or (
                 self.slice_processing_thread and self.slice_processing_thread.isRunning()): return
+        if self.global_xy_bounds is None:
+            QMessageBox.warning(self, "边界错误", "无法计算原始点云的全局XY边界。")
+            self.global_xy_bounds = calculate_global_xy_bounds(self.original_point_cloud)
+            return
         self.slice_list_widget.clear()
         self.current_slices.clear()
         self.slice_metadata.clear()
@@ -668,8 +603,10 @@ class BatchSliceViewerWindow(QWidget):
         self.progress_dialog.setAutoReset(True)
         self.progress_dialog.canceled.connect(self._cancel_processing)
         QTimer.singleShot(50, self.progress_dialog.show)
-        self.slice_processing_thread = SliceProcessingThread(self.original_point_cloud, num_slices, thickness,
-                                                             limit_thickness, thumbnail_size)
+        self.slice_processing_thread = SliceProcessingThread(
+            self.original_point_cloud, num_slices, thickness,
+            limit_thickness, thumbnail_size, self.global_xy_bounds
+        )
         self.slice_processing_thread.progress.connect(self._update_progress)
         self.slice_processing_thread.slice_ready.connect(self._collect_slice_data)
         self.slice_processing_thread.thumbnail_ready.connect(self._add_thumbnail_item)
@@ -706,8 +643,7 @@ class BatchSliceViewerWindow(QWidget):
         except:
             grid_resolution = self.DEFAULT_DENSITY_RESOLUTION
         colormap_name = self.density_colormap_combo.currentText()
-        overall_xy_bounds = get_overall_xy_bounds(self.current_slices)
-        if overall_xy_bounds is None:
+        if self.global_xy_bounds is None:
             QMessageBox.warning(self, "无有效边界", "无法计算有效XY边界。")
             return
         self.progress_dialog = QProgressDialog("正在计算密度图...", "取消", 0, 100, self)
@@ -717,8 +653,10 @@ class BatchSliceViewerWindow(QWidget):
         self.progress_dialog.setAutoReset(True)
         self.progress_dialog.canceled.connect(self._cancel_processing)
         QTimer.singleShot(50, self.progress_dialog.show)
-        self.density_processing_thread = DensityProcessingThread(self.current_slices, overall_xy_bounds,
-                                                                 grid_resolution, colormap_name)
+        self.density_processing_thread = DensityProcessingThread(
+            self.current_slices, self.global_xy_bounds,
+            grid_resolution, colormap_name
+        )
         self.density_processing_thread.progress.connect(self._update_progress)
         self.density_processing_thread.density_map_ready.connect(self._collect_density_data)
         self.density_processing_thread.finished.connect(self._density_processing_finished)
@@ -805,7 +743,11 @@ class BatchSliceViewerWindow(QWidget):
         if DEBUG_MODE: print(
             f"DEBUG: Generating batch result pixmaps. Colormap={result_colormap}, vmin={vmin_res}, vmax={vmax_res}")
         for key, matrix in self.batch_op_results.items():
-            self.batch_op_pixmaps[key] = create_density_heatmap(matrix, result_colormap, vmin=vmin_res, vmax=vmax_res)
+            batch_op_pixmap_np = create_density_heatmap(matrix, result_colormap, vmin=vmin_res, vmax=vmax_res)
+            h, w, ch = batch_op_pixmap_np.shape
+            q_img = QImage(batch_op_pixmap_np.data, w, h, w * ch,
+                           QImage.Format.Format_RGBA8888 if ch == 4 else QImage.Format.Format_RGB888)
+            self.batch_op_pixmaps[key] = QPixmap.fromImage(q_img)
 
         # Store params used for this batch op
         self.batch_op_params = {"op_str": operation_str, "k": k, "loop": loop, "indices": calculated_indices,
@@ -1184,8 +1126,19 @@ class BatchSliceViewerWindow(QWidget):
             else:
                 vmin_res, vmax_res = 0, 1  # Assume binary 0/1 for non-diff logical ops
             self.logic_op_result_matrix = result_matrix
-            self.logic_op_result_pixmap = create_density_heatmap(result_matrix, result_colormap, vmin=vmin_res,
-                                                                 vmax=vmax_res)
+            heatmap_rgba_np = create_density_heatmap(result_matrix, result_colormap, vmin=vmin_res, vmax=vmax_res)
+            self.logic_op_result_pixmap = QPixmap()
+            if heatmap_rgba_np is not None:
+                try:
+                    h, w, ch = heatmap_rgba_np.shape
+                    q_img = QImage(
+                        heatmap_rgba_np.data, w, h, w * ch,
+                        QImage.Format.Format_RGBA8888 if ch == 4
+                        else QImage.Format.Format_RGB888
+                    )
+                    if not q_img.isNull(): self.logic_op_result_pixmap = QPixmap.fromImage(q_img)
+                except Exception as e_img_logic:
+                    print(f"ERROR: 转换逻辑运算结果热力图为 QPixmap 时出错: {e_img_logic}")
             self.density_display_combo.setCurrentText("单次运算结果")  # Switch view
             self._update_center_view()  # Update display immediately
         except Exception as e:
@@ -1301,7 +1254,6 @@ class BatchSliceViewerWindow(QWidget):
         global_params_file = os.path.join(base_export_path, "export_parameters.json")
         with open(global_params_file, 'w', encoding='utf-8') as f:
             json.dump(global_params, f, ensure_ascii=False, indent=2)
-        overall_xy_bounds = get_overall_xy_bounds(self.current_slices)
         export_progress = QProgressDialog("正在导出数据...", "取消", 0, len(indices_to_export), self)
         export_progress.setWindowTitle("导出进度")
         export_progress.setWindowModality(Qt.WindowModality.WindowModal)
@@ -1322,7 +1274,9 @@ class BatchSliceViewerWindow(QWidget):
             density_matrix = self.density_matrices.get(index)
             density_pixmap = self.density_pixmaps.get(index)
             density_params_saved = self.density_params.get(index)
-            if metadata is None: print(f"WARNING: Meta missing {index}."); continue
+            if metadata is None:
+                print(f"WARNING: Meta missing {index}.")
+                continue
             img_np = None
             view_params_render = None
             render_error_msg = None
@@ -1334,11 +1288,14 @@ class BatchSliceViewerWindow(QWidget):
                 export_progress.setLabelText(f"渲染位图 {index}...")
                 QApplication.processEvents()
                 try:
-                    img_np, view_params_render = render_slice_to_image(slice_data_pv, self.BITMAP_EXPORT_RESOLUTION,
-                                                                       overall_xy_bounds, False)
+                    img_np, view_params_render = render_slice_to_image(
+                        slice_data_pv, self.BITMAP_EXPORT_RESOLUTION,
+                        self.global_xy_bounds, False
+                    )
                 except Exception as r_err:
                     render_error_msg = str(r_err)
-                if img_np is None and not render_error_msg: render_error_msg = "Bitmap rendering failed"
+                if img_np is None and not render_error_msg:
+                    render_error_msg = "Bitmap rendering failed"
             # Save Metadata
             meta_filename = os.path.join(base_export_path, f"slice_{index}_metadata.json")
             metadata["view_params_render"] = view_params_render if img_np is not None else None
@@ -1353,7 +1310,7 @@ class BatchSliceViewerWindow(QWidget):
             # Save Bitmap
             if img_np is not None:
                 try:
-                    bitmap_filename = os.path.join(base_export_path, f"slice_{index}_bitmap.png");
+                    bitmap_filename = os.path.join(base_export_path, f"slice_{index}_bitmap.png")
                     img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
                     if cv2.imwrite(bitmap_filename, img_bgr):
                         bitmap_saved = True
@@ -1362,7 +1319,7 @@ class BatchSliceViewerWindow(QWidget):
                     print(f"ERROR saving bitmap {index}: {bm_err}")
             # Save PCD
             if slice_data_pv is not None and slice_data_pv.n_points > 0:
-                pcd_filename = os.path.join(base_export_path, f"slice_{index}.pcd");
+                pcd_filename = os.path.join(base_export_path, f"slice_{index}.pcd")
                 try:
                     export_progress.setLabelText(f"保存 PCD {index}...")
                     QApplication.processEvents()
@@ -1394,8 +1351,9 @@ class BatchSliceViewerWindow(QWidget):
                 except Exception as den_err:
                     print(f"ERROR saving density {index}: {den_err}")
             elif index in self.density_matrices:
-                density_saved = True  # Attempted
-            if bitmap_saved or pcd_saved or density_saved or metadata.get("is_empty", False): exported_count += 1
+                density_saved = True
+            if bitmap_saved or pcd_saved or density_saved or metadata.get("is_empty", False):
+                exported_count += 1
         export_progress.setValue(len(indices_to_export))
         QMessageBox.information(self, "导出完成",
                                 f"处理完成 {len(indices_to_export)} 项。\n成功导出 {exported_count} 个切片的各类数据。\n(位图: {exported_bitmap_count}, PCD: {exported_pcd_count}, 密度: {exported_density_count})\n保存在:\n{base_export_path}")

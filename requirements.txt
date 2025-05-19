@@ -8,3 +8,7 @@ qtawesome
 Pillow
 matplotlib
 pandas
+scikit-image
+
+# Beta
+# sckikit-learn

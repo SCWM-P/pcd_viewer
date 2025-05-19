@@ -1,0 +1,79 @@
+{
+  "global": {
+    "show_intermediate_steps": true,
+    "?show_intermediate_steps": "是否显示预处理过程图",
+    "export_batch_dir": "../batch_slice_output/batch_slice_export_20250507_162504",
+    "slice_index_to_process": 8,
+    "?slice_index_to_process": "要处理的切片索引"
+  },
+  "preprocessing": {
+    "enable_gaussian_blur": true,
+    "gaussian_kernel_size": [9, 9],
+    "gaussian_sigma_x": 0,
+    "enable_median_blur": false,
+    "median_kernel_size": 5,
+    "enable_canny": true,
+    "canny_threshold1": 50,
+    "canny_threshold2": 150,
+    "canny_aperture_size": 3,
+    "enable_morph_close": true,
+    "morph_close_kernel_size": [5, 5],
+    "morph_close_iterations": 1,
+    "enable_morph_open": false,
+    "morph_open_kernel_size": [3, 3],
+    "morph_open_iterations": 1,
+    "enable_skeletonize": false,
+    "?enable_skeletonize": "需要 skimage"
+  },
+  "detection_algorithm": "LSD",
+  "?detection_algorithm": "Select from 'HoughP', 'LSD', 'RANSAC', 'Contours', 'EDLines'",
+  "algorithms": {
+    "HoughP": {
+      "rho": 1,
+      "theta_degrees": 1,
+      "?theta_degrees": "将用 np.pi/180 转换",
+      "threshold": 100,
+      "min_line_length": 30,
+      "max_line_gap": 10
+    },
+    "LSD": {
+      "refine": 1,
+      "?refine": "0: None, 1: Standard, 2: Advanced",
+      "scale": 0.8,
+      "sigma_scale": 0.6,
+      "quant": 2.0,
+      "ang_th": 22.5,
+      "log_eps": 0.0,
+      "?log_eps": "通常为0",
+      "density_th": 0.7,
+      "n_bins": 1024
+    },
+    "RANSAC": {
+      "min_samples": 2,
+      "residual_threshold": 3.0,
+      "?residual_threshold": "像素距离",
+      "max_trials": 1000,
+      "stop_n_inliers": 30,
+      "?stop_n_inliers": "达到多少内点就停止",
+      "stop_probability": 0.99
+    },
+    "Contours": {
+      "approx_poly_epsilon_factor": 0.01,
+      "?approx_poly_epsilon_factor": "轮廓周长的百分比",
+      "min_contour_area": 100,
+      "min_line_segment_length": 20
+    },
+    "EDLines": {
+      "?help": "EDLines 通常参数较少或自适应",
+      "gradient_threshold": 20,
+      "anchor_threshold": 2
+    }
+  },
+  "visualization": {
+    "line_color": [0, 255, 0],
+    "?line_color": "BGR for OpenCV",
+    "line_thickness": 2,
+    "wait_key_delay": 0,
+    "?wait_key_delay": "0 for infinite wait, >0 for ms delay"
+  }
+}
