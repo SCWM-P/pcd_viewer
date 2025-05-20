@@ -20,10 +20,11 @@ sys.path.append(str(project_root_parent))
 from pcd_viewer.utils.geometry_utils import calculate_global_xy_bounds
 from pcd_viewer.utils.point_cloud_handler import PointCloudHandler
 from pcd_viewer.utils.slice_handler import calculate_and_plot_density, SliceDataReader, create_density_heatmap
-from pcd_viewer import DEBUG_MODE
+from pcd_viewer import DEBUG_MODE, RANDOM_SEED
 
 plt.rcParams['font.sans-serif'] = ["SimHei"]
 plt.rcParams['axes.unicode_minus'] = False
+np.random.seed(RANDOM_SEED)
 
 
 def probabilistic_morphology_op(
@@ -71,7 +72,13 @@ def probabilistic_morphology_op(
     for r_idx in tqdm(range(rows)):
         for c_idx in range(cols):
             sum_activated_density = 0.0
-            overlapping_foreground_pixels = 0
+            # 无重叠前景像素跳过
+            if not np.any(
+                    S_prime[
+                    max(r_idx - k_center_r, 0): min(r_idx + k_center_r + 1, rows+1),
+                    max(c_idx - k_center_c, 0): min(c_idx + k_center_c + 1, cols+1)
+                    ] < 255
+            ): probability_matrix[r_idx, c_idx] = 0.0; continue
             # 将核应用于当前位置
             for kr_idx in range(k_rows):
                 for kc_idx in range(k_cols):
@@ -80,22 +87,15 @@ def probabilistic_morphology_op(
                     # 计算当前核元素对应的图像像素坐标
                     img_r = r_idx + kr_idx - k_center_r
                     img_c = c_idx + kc_idx - k_center_c
-
                     # 检查是否在图像边界内
                     if 0 <= img_r < rows and 0 <= img_c < cols:
-                        # 检查该像素在原始二值切片中是否为前景
-                        if S_prime[img_r, img_c] < 255:  # 前景像素
-                            overlapping_foreground_pixels += 1
-                            # 获取对应位置的密度值并归一化密度并应用激活函数
-                            density_val = density_matrix[img_r, img_c]
-                            normalized_density = np.clip((density_val - den_min) / density_range, 0.0, 1.0)
-                            sum_activated_density += activation_func(normalized_density)
-            if overlapping_foreground_pixels == 0:  # 无重叠前景像素
-                probability_matrix[r_idx, c_idx] = 0.0
-                continue
+                        # 获取对应位置的密度值并归一化密度并应用激活函数
+                        density_val = density_matrix[img_r, img_c]
+                        normalized_density = np.clip((density_val - den_min) / density_range, 0.0, 1.0)
+                        sum_activated_density += activation_func(normalized_density)
             probability_matrix[r_idx, c_idx] = (np.tanh(sensitivity * (sum_activated_density - bias)) + 1) / 2
-            assert 0.0 <= probability_matrix[
-                r_idx, c_idx] <= 1.0, f"probability[{r_idx}, {c_idx}] = {probability_matrix[r_idx, c_idx]} 超出范围[0,1] !"
+            assert 0.0 <= probability_matrix[r_idx, c_idx] <= 1.0,\
+                f"probability[{r_idx}, {c_idx}] = {probability_matrix[r_idx, c_idx]} 超出范围[0,1] !"
     # 根据概率执行操作
     random_throw = np.random.rand(rows, cols)
     if operation_type == 'erode':
@@ -263,12 +263,24 @@ def run_slice_analysis(
         bias = op_details.get('bias', 1.0)
         activation_str = op_details.get('activation', 'x_cubed')
         activation_func = activation_functions.get(activation_str, lambda x: x ** 3)
-        kernel = np.ones((k_size, k_size), np.uint8)  # Simple square kernel
-        # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k_size,k_size)) # Elliptical
+        if isinstance(k_size, int):
+            assert k_size % 2 == 1, f"k_size:{k_size}错误！核长宽必须是奇数,"
+            kernel = np.ones((k_size, k_size), np.uint8)
+        else:
+            try:
+                if not isinstance(k_size, list):
+                    print(f"警告：形态学操作{i}的核参数不为整数或列表，尝试强制转换")
+                kernel = np.array(k_size, dtype=np.uint8)
+                assert kernel.shape[0] % 2 == 1 and kernel.shape[1] % 2 == 1, "核长宽必须是奇数"
+                assert np.all((kernel == 0) | (kernel == 1)), "核参数必须是0或1组成的二值矩阵"
+            except Exception as e:
+                raise ValueError(f"形态学操作 {i} 的核参数错误: {e}")
 
+        kernel_str = f"({k_size}, {k_size})" if isinstance(k_size, int) else f"自定义核{k_size}"
         print(
             f"执行第 {i + 1} 组操作: {op_type.capitalize()} {rounds} 轮,"
-            f"Kernel: {k_size}x{k_size}, Sens: {sensitivity}, Bias: {bias}, Act: {activation_str}"
+            f"Kernel: {kernel_str},"
+            f"Sens: {sensitivity}, Bias: {bias}, Act: {activation_str}"
         )
 
         for r in range(rounds):

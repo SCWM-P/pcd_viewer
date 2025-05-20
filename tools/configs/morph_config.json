@@ -4,17 +4,25 @@
   "default_prob_kernel_size": 3,
   "probabilistic_morphology_sequence": [
     {
+      "type": "dilate",
+      "rounds": 1,
+      "kernel_size": 9,
+      "sensitivity": 1,
+      "bias": 0.1,
+      "activation": "x_cubed"
+    },
+    {
       "type": "erode",
       "rounds": 1,
       "kernel_size": 3,
-      "sensitivity": 3,
+      "sensitivity": 4,
       "bias": 0.5,
-      "activation": "x_squared"
+      "activation": "x_linear"
     },
     {
       "type": "dilate",
       "rounds": 3,
-      "kernel_size": 5,
+      "kernel_size": [[0,0,1,0,0],[0,0,1,0,0],[1,1,1,1,1],[0,0,1,0,0],[0,0,1,0,0]],
       "sensitivity": 3,
       "bias": 1,
       "activation": "x_cubed"

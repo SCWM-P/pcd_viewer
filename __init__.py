@@ -10,7 +10,12 @@ __dependencies__ = [
     "open3d",
     "numpy",
     "opencv-python",
-    "qtawesome"
+    "qtawesome",
+    "matplotlib",
+    "pandas",
+    "scikit-image",
+    "Pillow",
+    "pyvistaqt",
 ]
 
 # Global Settings
