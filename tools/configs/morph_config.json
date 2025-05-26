@@ -13,16 +13,80 @@
     },
     {
       "type": "erode",
-      "rounds": 1,
+      "rounds": 3,
       "kernel_size": 3,
       "sensitivity": 4,
-      "bias": 0.5,
-      "activation": "x_linear"
+      "bias": 0.2,
+      "activation": "x_cubed"
     },
     {
       "type": "dilate",
+      "rounds": 5,
+      "kernel_size": 7,
+      "sensitivity": 3,
+      "bias": 1,
+      "activation": "x_cubed"
+    },
+    {
+      "type": "erode",
       "rounds": 3,
-      "kernel_size": [[0,0,1,0,0],[0,0,1,0,0],[1,1,1,1,1],[0,0,1,0,0],[0,0,1,0,0]],
+      "kernel_size": 3,
+      "sensitivity": 4,
+      "bias": 0.2,
+      "activation": "x_cubed"
+    },
+    {
+      "type": "dilate",
+      "rounds": 5,
+      "kernel_size": 7,
+      "sensitivity": 3,
+      "bias": 1,
+      "activation": "x_cubed"
+    },
+    {
+      "type": "erode",
+      "rounds": 3,
+      "kernel_size": 3,
+      "sensitivity": 4,
+      "bias": 0.2,
+      "activation": "x_cubed"
+    },
+    {
+      "type": "dilate",
+      "rounds": 5,
+      "kernel_size": 7,
+      "sensitivity": 3,
+      "bias": 1,
+      "activation": "x_cubed"
+    },
+    {
+      "type": "erode",
+      "rounds": 3,
+      "kernel_size": 3,
+      "sensitivity": 4,
+      "bias": 0.2,
+      "activation": "x_cubed"
+    },
+    {
+      "type": "dilate",
+      "rounds": 5,
+      "kernel_size": 7,
+      "sensitivity": 3,
+      "bias": 1,
+      "activation": "x_cubed"
+    },
+    {
+      "type": "erode",
+      "rounds": 3,
+      "kernel_size": 3,
+      "sensitivity": 4,
+      "bias": 0.2,
+      "activation": "x_cubed"
+    },
+    {
+      "type": "dilate",
+      "rounds": 5,
+      "kernel_size": 7,
       "sensitivity": 3,
       "bias": 1,
       "activation": "x_cubed"
