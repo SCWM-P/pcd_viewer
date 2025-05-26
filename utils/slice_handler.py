@@ -233,63 +233,113 @@ def render_slice_to_image(slice_data, size, overall_xy_bounds=None, is_thumbnail
             except Exception: pass
 
 
-def calculate_and_plot_density(pcd_file_path, grid_resolution=1024, colormap='viridis'):
+def calculate_and_plot_density(
+        pcd_file_path, grid_resolution=1024, colormap='viridis',
+        output_density_matrix_path=None,
+        show_plot=True
+):
     """
-    读取点云文件，计算XY平面投影密度，并绘制热力图。
+    读取点云文件，计算XY平面投影密度，绘制热力图和密度分布柱状图。
 
     参数:
         pcd_file_path (str): 点云文件的路径。
-        grid_resolution (int): 栅格化的分辨率 (例如 1024 表示 1024x1024的格子)。
+        grid_resolution (int): 栅格化的分辨率。
         colormap (str): 用于热力图的matplotlib颜色映射名称。
+        output_density_matrix_path (str, optional): 如果提供，则将对齐后的密度矩阵保存到此路径。
+        show_plot (bool): 是否显示绘制的图形。
+
+    返回:
+        tuple: (aligned_density_matrix, xmin, xmax, ymin, ymax, h_min, h_max)
+               如果发生错误则返回 (None, None, None, None, None, None, None)
     """
-    print(f"正在处理文件: {pcd_file_path}")
-    # 1. 读取点云文件 (使用 PointCloudHandler)
-    pcd, _, pcd_num = PointCloudHandler.load_from_file(pcd_file_path)
-    if DEBUG_MODE: print(f"DEBUG: 点云文件加载成功，点数: {pcd_num}")
-    points = np.asarray(pcd.points)
-    # 2. 计算点云XY边界
+    # 1. 读取点云文件
     try:
-        if DEBUG_MODE: print("DEBUG: 对Open3D点云计算全局XY边界...")
-        xy_bounds = calculate_global_xy_bounds(pcd)
+        # PointCloudHandler.load_from_file 返回 pv.PolyData, bounds, count
+        pcd_pv, _, pcd_num = PointCloudHandler.load_from_file(pcd_file_path)
+        if pcd_pv is None or pcd_num == 0:
+            print(f"错误: 文件 {pcd_file_path} 加载失败或不包含点。")
+            return None, None, None, None, None, None, None
+        if DEBUG_MODE: print(f"DEBUG: 点云文件加载成功，点数: {pcd_num}")
+        points = pcd_pv.points  # pv.PolyData.points 是 NumPy 数组
     except Exception as e:
-        if DEBUG_MODE: print(f"DEBUG: 计算XY边界时发生错误:{e}，采用Numpy格式计算...")
-        xy_bounds = calculate_global_xy_bounds(points)
-    assert xy_bounds is not None, "计算XY边界时发生错误"
+        print(f"错误: 无法读取或处理点云文件 {pcd_file_path}: {e}")
+        if DEBUG_MODE: traceback.print_exc()
+        return None, None, None, None, None, None, None
+
+    # 2. 计算点云XY边界
+    xy_bounds = calculate_global_xy_bounds(pcd_pv)  # Pass pv.PolyData object
+    if xy_bounds is None:
+        print("错误: 无法确定点云的XY边界。")
+        return None, None, None, None, None, None, None
     xmin, xmax, ymin, ymax = xy_bounds
     print(f"计算得到的XY边界 (含填充): X=[{xmin:.2f}, {xmax:.2f}], Y=[{ymin:.2f}, {ymax:.2f}]")
 
     # 3. 栅格化并计算点云数量
-    # 提取XY坐标
     points_xy = points[:, 0:2]
     print(f"正在计算 {grid_resolution}x{grid_resolution} 的密度矩阵...")
-    density_matrix, x_edges, y_edges = np.histogram2d(
-        points_xy[:, 0],  # 所有点的x坐标
-        points_xy[:, 1],  # 所有点的y坐标
+    density_matrix_hist, x_edges, y_edges = np.histogram2d(
+        points_xy[:, 0],
+        points_xy[:, 1],
         bins=[grid_resolution, grid_resolution],
         range=[[xmin, xmax], [ymin, ymax]]
     )
-    density_matrix_display = np.flipud(density_matrix) # 转置并上下翻转
+    aligned_density_matrix = np.flipud(density_matrix_hist.T)
 
     print("密度矩阵计算完成。")
-    if DEBUG_MODE:
-        print(f"密度矩阵形状: {density_matrix_display.shape}")
-        print(f"密度值范围: min={np.min(density_matrix_display)}, max={np.max(density_matrix_display)}")
+    h_min_val = np.min(aligned_density_matrix)
+    h_max_val = np.max(aligned_density_matrix)
+    if show_plot:
+        # 4. 绘制 matplotlib 密度热力图和密度分布柱状图
+        fig, axes = plt.subplots(1, 2, figsize=(15, 7))
+        # --- 子图1: 密度热力图 ---
+        ax_heatmap = axes[0]
+        im = ax_heatmap.imshow(
+            aligned_density_matrix,
+            cmap=colormap,
+            extent=[xmin, xmax, ymin, ymax],
+            origin='lower',
+            aspect='equal'
+        )
+        cbar = fig.colorbar(im, ax=ax_heatmap, fraction=0.046, pad=0.04)
+        cbar.set_label('点密度 (数量/格)')
+        ax_heatmap.set_title(f'XY平面密度热力图 ({grid_resolution}x{grid_resolution} 栅格)\n{Path(pcd_file_path).name}')
+        ax_heatmap.set_xlabel('X 坐标 (米)')
+        ax_heatmap.set_ylabel('Y 坐标 (米)')
+        # --- 子图2: 密度分布柱状图 ---
+        ax_hist = axes[1]
+        density_values_flat = aligned_density_matrix.flatten()
+        # 过滤掉密度为0的格子，使柱状图更能反映非空区域的分布（可选）
+        density_values_flat_positive = density_values_flat[density_values_flat > 0]
+        if len(density_values_flat_positive) > 0:
+            num_hist_bins = max(30, int(grid_resolution / 5))  # 至少10个bins
+            if DEBUG_MODE: print(f"DEBUG: 密度分布柱状图的 bins 数量: {num_hist_bins}")
+            # 使用 np.histogram 计算数据，然后用 ax.bar 绘制，可以更好地控制外观
+            counts, bin_edges_hist = np.histogram(density_values_flat_positive, bins=num_hist_bins)
+            bin_centers = (bin_edges_hist[:-1] + bin_edges_hist[1:]) / 2
+            ax_hist.bar(
+                bin_centers, counts, width=(bin_edges_hist[1] - bin_edges_hist[0]) * 0.9,
+                color='skyblue', edgecolor='black'
+            )
+            ax_hist.set_title('非零格点密度分布')
+            ax_hist.set_xlabel('每个格子的点数 (密度)')
+            ax_hist.set_ylabel('格子数量 (频数)')
+            ax_hist.grid(True, linestyle=':', alpha=0.7)
+            # ax_hist.set_yscale('log') # 如果密度差异很大，对数刻度可能更好
+        else:
+            ax_hist.text(0.5, 0.5, '所有格子密度均为0', ha='center', va='center')
+            ax_hist.set_title('非零格点密度分布')
 
-    # 4. 绘制matplotlib密度热力图
-    fig, ax = plt.subplots(figsize=(10, 10))
-    im = ax.imshow(
-        density_matrix_display,
-        cmap=colormap,
-        extent=(xmin, xmax, ymin, ymax),
-        aspect='equal'  # 保持X和Y轴的比例一致
-    )
-    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label('点密度 (数量/格)')
-    ax.set_title(f'点云XY平面密度热力图 ({grid_resolution}x{grid_resolution} 栅格)\n文件: {Path(pcd_file_path).name}')
-    ax.set_xlabel('X 坐标 (米)')
-    ax.set_ylabel('Y 坐标 (米)')
-    plt.tight_layout()
-    plt.show()
+        plt.tight_layout()
+        plt.show()
+
+    if output_density_matrix_path:
+        try:
+            np.save(output_density_matrix_path, aligned_density_matrix)
+            print(f"对齐后的密度矩阵已保存到: {output_density_matrix_path}")
+        except Exception as e:
+            print(f"错误: 保存密度矩阵失败: {e}")
+
+    return aligned_density_matrix, xmin, xmax, ymin, ymax, h_min_val, h_max_val
 
 
 def create_density_heatmap(density_matrix, colormap_name='viridis', vmin=None, vmax=None):

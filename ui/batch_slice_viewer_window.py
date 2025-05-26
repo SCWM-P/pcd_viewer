@@ -1237,9 +1237,9 @@ class BatchSliceViewerWindow(QWidget):
 
         self.batch_results_slider.setValue(next_value)
 
-    # --- Export Methods (Combined) ---
-    def _export_bitmaps(self, indices_to_export):  # Consider renaming to _export_data
-        # ... (Implementation remains mostly the same, but now saves PCD and Density Matrix/Heatmap) ...
+    # --- Export Methods ---
+    def _export_bitmaps(self, indices_to_export):
+        # ... Saves PCD and Density Matrix/Heatmap ...
         if DEBUG_MODE: print(f"DEBUG: _export_data called for indices: {indices_to_export}")
         if not indices_to_export: return
         export_dir = QFileDialog.getExistingDirectory(self, "选择导出目录")

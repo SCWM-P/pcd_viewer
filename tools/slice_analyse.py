@@ -37,7 +37,7 @@ def probabilistic_morphology_op(
     对二值切片图像执行基于密度的概率形态学操作。
 
     参数:
-        binary_slice_image (np.ndarray): 输入的二值化切片位图 (0为背景, 非0为前景)。
+        binary_slice_image (np.ndarray): 输入的二值化切片位图 (非0为背景, <255为前景)。
         aligned_density_matrix (np.ndarray): 与切片位图对齐的整体密度矩阵。
         den_min (float): 整体密度矩阵中的最小密度值 (用于归一化)。
         den_max (float): 整体密度矩阵中的最大密度值 (用于归一化)。
@@ -60,51 +60,29 @@ def probabilistic_morphology_op(
     # 确保输入是二值图像 (0 和 255)
     _, S_prime = cv2.threshold(binary_slice_image, 254, 255, cv2.THRESH_BINARY)
     output_image = S_prime.copy()
-    rows, cols = S_prime.shape
-    k_rows, k_cols = kernel.shape
-    assert k_rows % 2 == 1 and k_cols % 2 == 1, "核长宽必须是奇数"
     assert operation_type in ['erode', 'dilate'], "操作类型必须是 'erode' 或 'dilate'"
     assert binary_slice_image.shape == density_matrix.shape, "切片图像和密度矩阵尺寸不匹配"
-    k_center_r, k_center_c = k_rows // 2, k_cols // 2
-    if density_range < 1e-6: density_range = 1.0
-    probability_matrix = np.zeros_like(density_matrix, dtype=float)
-    # 遍历图像中的每个像素 (核的中心)
-    for r_idx in tqdm(range(rows)):
-        for c_idx in range(cols):
-            sum_activated_density = 0.0
-            # 无重叠前景像素跳过
-            if not np.any(
-                    S_prime[
-                    max(r_idx - k_center_r, 0): min(r_idx + k_center_r + 1, rows+1),
-                    max(c_idx - k_center_c, 0): min(c_idx + k_center_c + 1, cols+1)
-                    ] < 255
-            ): probability_matrix[r_idx, c_idx] = 0.0; continue
-            # 将核应用于当前位置
-            for kr_idx in range(k_rows):
-                for kc_idx in range(k_cols):
-                    if kernel[kr_idx, kc_idx] == 0:  # 只考虑核中为1的部分
-                        continue
-                    # 计算当前核元素对应的图像像素坐标
-                    img_r = r_idx + kr_idx - k_center_r
-                    img_c = c_idx + kc_idx - k_center_c
-                    # 检查是否在图像边界内
-                    if 0 <= img_r < rows and 0 <= img_c < cols:
-                        # 获取对应位置的密度值并归一化密度并应用激活函数
-                        density_val = density_matrix[img_r, img_c]
-                        normalized_density = np.clip((density_val - den_min) / density_range, 0.0, 1.0)
-                        sum_activated_density += activation_func(normalized_density)
-            probability_matrix[r_idx, c_idx] = (np.tanh(sensitivity * (sum_activated_density - bias)) + 1) / 2
-            assert 0.0 <= probability_matrix[r_idx, c_idx] <= 1.0,\
-                f"probability[{r_idx}, {c_idx}] = {probability_matrix[r_idx, c_idx]} 超出范围[0,1] !"
+    normalized_density_matrix = np.clip((density_matrix - den_min) / density_range, 0.0, 1.0)
+    activated_density_matrix = activation_func(normalized_density_matrix)
+    sum_activated_density_matrix = cv2.filter2D(
+        activated_density_matrix.copy(),
+        -1, kernel, borderType=cv2.BORDER_CONSTANT
+    )
+    non_probability_mask = cv2.filter2D(
+        (S_prime == 0).astype(np.uint8), -1, kernel,
+        borderType=cv2.BORDER_CONSTANT
+    )
+    probability_matrix = (np.tanh(sensitivity * (sum_activated_density_matrix - bias)) + 1.0) / 2.0
+    probability_matrix[non_probability_mask == 0] = 0.0
     # 根据概率执行操作
-    random_throw = np.random.rand(rows, cols)
+    random_matrix = np.random.rand(*S_prime.shape)
     if operation_type == 'erode':
-        erode_mask = (S_prime < 255) & (random_throw < (1.0 - probability_matrix))
+        erode_mask = (S_prime < 255) & (random_matrix < (1.0 - probability_matrix))
         output_image[erode_mask] = 255
     elif operation_type == 'dilate':
-        dilate_mask = random_throw < probability_matrix
+        dilate_mask = random_matrix < probability_matrix
         output_image[dilate_mask] = 0
-    return output_image
+    return output_image, probability_matrix
 
 
 # --- 辅助函数用于可视化 ---
@@ -125,9 +103,11 @@ def display_images(image_dict, main_title="图像处理流程"):
             axes[i].axis('off')
             continue
         if len(img.shape) == 2:  # 灰度图或二值图
-            axes[i].imshow(img, cmap='gray')
+            im = axes[i].imshow(img, cmap='gray')
+            fig.colorbar(im, ax=axes[i])
         elif len(img.shape) == 3:  # 彩色图 (假设是RGB)
-            axes[i].imshow(img)
+            im = axes[i].imshow(img)
+            fig.colorbar(im, ax=axes[i])
         axes[i].set_title(title)
         axes[i].axis('off')
 
@@ -135,8 +115,11 @@ def display_images(image_dict, main_title="图像处理流程"):
     for j in range(i + 1, len(axes)):
         fig.delaxes(axes[j])
 
+    if args.output_image_path:
+        Path.mkdir(Path(args.output_image_path), exist_ok=True)
+        plt.savefig(args.output_image_path / "prob_morph_process.png", dpi=300)
     fig.suptitle(main_title, fontsize=16)
-    plt.tight_layout(rect=(0, 0, 1, 0.96))  # 调整布局以适应主标题
+    plt.tight_layout(rect=(0, 0, 1, 0.96))
     plt.show()
 
 
@@ -177,7 +160,7 @@ def run_slice_analysis(
         if DEBUG_MODE: traceback.print_exc()
         return
 
-    # 获取要处理的切片位图
+    # 获取要处理的切片密度矩阵
     target_slice_density_matrix = reader.get_density_matrix(slice_index_to_process)
     if target_slice_density_matrix is None:
         print(f"错误: 在导出的数据中未找到索引为 {slice_index_to_process} 的密度矩阵。")
@@ -228,9 +211,7 @@ def run_slice_analysis(
         vmin=den_min_overall, vmax=den_max_overall
     )
     if overall_density_heatmap is not None:
-        images_to_display["整体密度热力图"] = overall_density_heatmap
-        # 如果要用 OpenCV 保存，需要转换
-        # cv2.imwrite("overall_density_heatmap.png", cv2.cvtColor(overall_density_heatmap_rgba, cv2.COLOR_RGBA2BGRA))
+        images_to_display["整体密度热力图"] = overall_density_heatmap.copy()
 
     # --- 3. 对指定切片投影位图做基于密度和概率的形态学操作 ---
     # 确保切片位图与密度图尺寸一致
@@ -283,11 +264,11 @@ def run_slice_analysis(
             f"Sens: {sensitivity}, Bias: {bias}, Act: {activation_str}"
         )
 
-        for r in range(rounds):
+        for r in tqdm(range(rounds)):
             if DEBUG_MODE: print(f"轮次 {r + 1}/{rounds}...")
-            current_processed_image = probabilistic_morphology_op(
+            current_processed_image, probability_matrix = probabilistic_morphology_op(
                 current_processed_image,  # 输入是上一轮的结果
-                overall_aligned_density_matrix,
+                overall_aligned_density_matrix.copy(),
                 kernel,
                 operation_type=op_type,
                 activation_func=activation_func,
@@ -297,18 +278,19 @@ def run_slice_analysis(
             # 可选：在每轮后显示中间结果
             if DEBUG_MODE and rounds > 1:
                 images_to_display[f"操作组{i + 1}-{op_type}-轮次{r + 1}"] = current_processed_image.copy()
+                images_to_display[f"操作组{i + 1}-{op_type}-轮次{r + 1}-概率"] = probability_matrix.copy()
         images_to_display[f"操作组{i + 1}后 ({op_type.capitalize()} {rounds}轮)"] = current_processed_image.copy()
+        images_to_display[f"操作组{i + 1}后 ({op_type.capitalize()} {rounds}轮)-概率"] = probability_matrix.copy()
     print("概率形态学操作完成。")
 
     display_images(images_to_display, f"切片 {slice_index_to_process} 分析结果")
     # Optionally save the final image
     if args.output_image_path:
-        Path.mkdir(Path(args.output_image_path).parent, exist_ok=True)
-        cv2.imwrite(args.output_image_path, current_processed_image)
+        cv2.imwrite(args.output_image_path / f"prob_morph_result_{args.slice_index}.png", current_processed_image)
         print(f"\n执行完成！结果图像已保存到 {args.output_image_path}")
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="生成点云XY平面密度热力图。")
     parser.add_argument(
         "--pcd_file", type=str, default=project_root / "samples" / "one_floor.pcd",
@@ -317,7 +299,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--batch_base_dir", type=str,
         help="包含 'batch_slice_export_*' 子目录的父目录路径，将自动查找最新的导出批次。",
-        default="../batch_slice_output"
+        default="../slice_output"
     )
     parser.add_argument(
         "--batch_dir", type=str,
@@ -340,7 +322,7 @@ if __name__ == "__main__":
         help="Matplotlib 颜色映射方案 (例如: viridis, plasma, inferno, magma, cividis, jet, hot), 默认: viridis"
     )
     parser.add_argument(
-        "--output_image_path", type=str, default=project_root / "img_output" / "prob_morph_final_output.png",
+        "--output_image_path", type=str, default=project_root / "img_output",
         help="最终处理结果图像的保存路径。"
     )
     parser.add_argument(
@@ -434,4 +416,9 @@ if __name__ == "__main__":
         density_colormap=args.cmap,
         morph_operations=morph_ops_list
     )
-    # calculate_and_plot_density(args.pcd_file, args.resolution, args.cmap)
+    calculate_and_plot_density(
+        args.pcd_file, args.resolution, args.cmap,
+        output_density_matrix_path=args.output_image_path / "density_matrix_and_distribution.png"
+    )
+
+main()

@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+backend-path = ["."] # 告诉构建工具在哪里找到 setuptools (如果使用了本地的 build.py 等)
+
+[project]
+name = "pcd-viewer"
+dynamic = ["version"]
+authors = [
+  { name="SCWM_P", email="SCWM_P@outlook.com" },
+]
+description = "一个用于3D点云数据可视化和分析的轻量级工具，具有切片、直线检测和密度分析功能。"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file="LICENSE.txt" } # 假设你有一个 LICENSE.txt 文件，或直接写 "MIT"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Framework :: Matplotlib",
+    "Framework :: PyVista",
+    "Framework :: Qt",
+]
+keywords = ["point cloud", "pcd", "3d visualization", "pyqt6", "pyvista", "open3d", "slice analysis"]
+dependencies = [
+    "PyQt6>=6.0",       # PyQt6 for the GUI
+    "pyvista>=0.40",    # For 3D visualization (VTK backend)
+    "pyvistaqt>=0.10",  # Qt integration for PyVista
+    "open3d>=0.16",     # For reading/writing point cloud files
+    "numpy>=1.20",      # Numerical operations
+    "opencv-python>=4.5", # Image processing
+    "qtawesome>=1.2",   # For icons
+    "Pillow>=9.0",      # Image handling (sometimes a dependency of others)
+    "matplotlib>=3.5",  # For plotting (density heatmaps, histograms)
+    "pandas>=1.3",      # For reading text-based point clouds
+    "scikit-image>=0.19", # For morphology (skeletonize) and RANSAC (optional)
+]
+
+[project.option.dependencies]
+extra = "scikit-learn>=1.0"
+
+[project.urls]
+Repository = "https://github.com/SCWM-P/pcd_viewer"
+
+# --- 入口点配置 ---
+[project.scripts]
+pcd-slice-analyse = "pcd_viewer.tools.slice_analyse:main"
+
+[project.gui-scripts]
+pcd-viewer = "pcd_viewer.main:main"
+
+# [tool.setuptools]
+# include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]  # 项目的根目录，包含 pcd_viewer 包
+include = ["pcd_viewer*"] # 包含 pcd_viewer 及其所有子包
+exclude = ["docs*", "tests*"]  # 排除的顶级目录
+
+[tool.setuptools.package-data]
+"pcd_viewer.assets" = ["*.png"]
+"pcd_viewer.tools.configs" = ["*.json"]
+pcd_viewer = ["samples/*.pcd", "assets/*.png", "tools/configs/*.json"]
