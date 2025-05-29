@@ -283,131 +283,132 @@ def run_slice_analysis(
         images_to_display[f"操作组{i + 1}后 ({op_type.capitalize()} {rounds}轮)-概率"] = probability_matrix.copy()
     print("概率形态学操作完成。")
 
-    display_images(images_to_display, f"切片 {slice_index_to_process} 分析结果")
+    display_images(images_to_display,f"切片 {slice_index_to_process} 分析结果")
     # Optionally save the final image
     if args.output_image_path:
         cv2.imwrite(args.output_image_path / f"prob_morph_result_{args.slice_index}.png", current_processed_image)
         print(f"\n执行完成！结果图像已保存到 {args.output_image_path}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="生成点云XY平面密度热力图。")
-    parser.add_argument(
-        "--pcd_file", type=str, default=project_root / "samples" / "one_floor.pcd",
-        help="输入的点云文件路径 (.pcd, .ply, .txt, .xyz等Open3D支持的格式)"
-    )
-    parser.add_argument(
-        "--batch_base_dir", type=str,
-        help="包含 'batch_slice_export_*' 子目录的父目录路径，将自动查找最新的导出批次。",
-        default="../slice_output"
-    )
-    parser.add_argument(
-        "--batch_dir", type=str,
-        help="直接指定 'batch_slice_export_YYYYMMDD_HHMMSS' 目录的路径。如果提供，则忽略 --batch_dir。"
-    )
-    parser.add_argument(
-        "--slice_index", type=int, default=None,
-        help="要处理的切片索引 (从0开始)"
-    )
-    parser.add_argument(
-        "--resolution", type=int, default=1024,
-        help="密度图的栅格分辨率 (例如: 512 表示 512x512)，默认: 1024"
-    )
-    parser.add_argument(
-        "--config_file", type=str, default=project_root / "tools" / "configs" / "morph_config.json",
-        help="可选的JSON配置文件路径，用于指定形态学操作序列和参数。"
-    )
-    parser.add_argument(
-        "--cmap", type=str, default="viridis",
-        help="Matplotlib 颜色映射方案 (例如: viridis, plasma, inferno, magma, cividis, jet, hot), 默认: viridis"
-    )
-    parser.add_argument(
-        "--output_image_path", type=str, default=project_root / "img_output",
-        help="最终处理结果图像的保存路径。"
-    )
-    parser.add_argument(
-        "--debug", action="store_true",
-        help="启用详细的调试输出。"
-    )
-    args = parser.parse_args()
-    if args.debug: DEBUG_MODE = True
-    assert Path(args.pcd_file).exists(), f"错误:输入文件不存在 -> {args.pcd_file}"
+parser = argparse.ArgumentParser(description="生成点云XY平面密度热力图。")
+parser.add_argument(
+    "--pcd_file", type=str, default=project_root / "samples" / "one_floor.pcd",
+    help="输入的点云文件路径 (.pcd, .ply, .txt, .xyz等Open3D支持的格式)"
+)
+parser.add_argument(
+    "--batch_base_dir", type=str,
+    help="包含 'batch_slice_export_*' 子目录的父目录路径，将自动查找最新的导出批次。",
+    default="../slice_output"
+)
+parser.add_argument(
+    "--batch_dir", type=str,
+    help="直接指定 'batch_slice_export_YYYYMMDD_HHMMSS' 目录的路径。如果提供，则忽略 --batch_dir。"
+)
+parser.add_argument(
+    "--slice_index", type=int, default=None,
+    help="要处理的切片索引 (从0开始)"
+)
+parser.add_argument(
+    "--resolution", type=int, default=1024,
+    help="密度图的栅格分辨率 (例如: 512 表示 512x512)，默认: 1024"
+)
+parser.add_argument(
+    "--config_file", type=str, default=project_root / "tools" / "configs" / "morph_config.json",
+    help="可选的JSON配置文件路径，用于指定形态学操作序列和参数。"
+)
+parser.add_argument(
+    "--cmap", type=str, default="viridis",
+    help="Matplotlib 颜色映射方案 (例如: viridis, plasma, inferno, magma, cividis, jet, hot), 默认: viridis"
+)
+parser.add_argument(
+    "--output_image_path", type=str, default=project_root / "img_output",
+    help="最终处理结果图像的保存路径。"
+)
+parser.add_argument(
+    "--debug", action="store_true",
+    help="启用详细的调试输出。"
+)
+global args
+args = parser.parse_args()
+if args.debug: DEBUG_MODE = True
+assert Path(args.pcd_file).exists(), f"错误:输入文件不存在 -> {args.pcd_file}"
 
-    # --- 确定要处理的批处理导出目录 ---
-    target_batch_dir = None
-    if args.batch_dir:
-        target_batch_dir = Path(args.batch_dir)
-        assert target_batch_dir.is_dir(), f"错误:指定的批处理目录不存在 -> {target_batch_dir}"
-    elif args.batch_base_dir:
-        output_base_dir = Path(args.batch_base_dir)
-        assert output_base_dir.is_dir(), f"错误: 基础批处理目录不存在 -> {output_base_dir}"
-        try:
-            latest_export_dir = max(output_base_dir.glob("batch_slice_export_*"), key=os.path.getmtime, default=None)
-            if latest_export_dir:
-                target_batch_dir = latest_export_dir
-                print(f"自动找到最新的批处理导出目录: {target_batch_dir}")
-            else:
-                print(f"错误: 在 {output_base_dir} 中未找到任何 'batch_slice_export_*' 目录。");
-                sys.exit(1)
-        except ValueError:  # handles empty glob result for max
-            print(f"错误: 在 {output_base_dir} 中未找到任何 'batch_slice_export_*' 目录。")
-            sys.exit(1)
-        except FileNotFoundError as fnf_err:
-            print(f"错误: {fnf_err}")
-            sys.exit(1)
-        except Exception as e:
-            print(f"发生意外错误: {e}")
-            traceback.print_exc()
-            sys.exit(1)
-    else:
-        print("错误: 请通过 --batch_dir 或 --specific_batch_dir 指定批处理导出目录。")
-        sys.exit(1)
-
-    # --- 确定原始点云文件路径 ---
-    original_pcd_for_density = args.pcd_file
-    if not original_pcd_for_density:
-        # 尝试从 SliceDataReader 的 global_params 获取
-        try:
-            temp_reader = SliceDataReader(target_batch_dir)
-            temp_reader.read_all()  # Need to read global params
-            if temp_reader.global_params and 'original_point_cloud_source' in temp_reader.global_params:
-                source_name = temp_reader.global_params['original_point_cloud_source']
-                potential_paths = [project_root / "samples" / source_name, Path(source_name)]
-                for p_path in potential_paths:
-                    if p_path.exists(): original_pcd_for_density = str(p_path); break
-                if not original_pcd_for_density:
-                    print(f"警告: 在导出参数中找到源文件名 '{source_name}' 但无法定位该文件。请通过 --pcd_file 指定。")
-            else:
-                print("警告: 未在导出参数中找到原始点云源信息。请通过 --pcd_file 指定。")
-        except Exception as e_reader:
-            print(f"尝试从导出参数读取原始PCD路径时出错: {e_reader}")
-
-    if not original_pcd_for_density or not Path(original_pcd_for_density).exists():
-        print(f"错误: 无法确定或找到原始点云文件 '{original_pcd_for_density}' 用于密度计算。请使用 --pcd_file 参数指定。")
-        sys.exit(1)
-
-    # --- 尝试从文件加载形态学操作配置 ---
-    morph_ops_list = None
-    prob_sens = 2.0
-    prob_bias = 1.0
-    kernel_sz = 5
-    if args.config_file:
-        if Path(args.config_file).exists():
-            try:
-                with open(args.config_file, 'r', encoding='utf-8') as f:
-                    op_config = json.load(f)
-                morph_ops_list = op_config.get("probabilistic_morphology_sequence")
-                # Allow overriding default sensitivity, bias, kernel from config
-                prob_sens = op_config.get("default_prob_sensitivity", prob_sens)
-                prob_bias = op_config.get("default_prob_bias", prob_bias)
-                kernel_sz = op_config.get("default_prob_kernel_size", kernel_sz)
-                if DEBUG_MODE: print(f"从配置文件加载形态学操作序列: {morph_ops_list}")
-            except Exception as e_cfg:
-                print(f"警告: 读取或解析形态学配置文件 '{args.config_file}' 失败: {e_cfg}")
+# --- 确定要处理的批处理导出目录 ---
+target_batch_dir = None
+if args.batch_dir:
+    target_batch_dir = Path(args.batch_dir)
+    assert target_batch_dir.is_dir(), f"错误:指定的批处理目录不存在 -> {target_batch_dir}"
+elif args.batch_base_dir:
+    output_base_dir = Path(args.batch_base_dir)
+    assert output_base_dir.is_dir(), f"错误: 基础批处理目录不存在 -> {output_base_dir}"
+    try:
+        latest_export_dir = max(output_base_dir.glob("batch_slice_export_*"), key=os.path.getmtime, default=None)
+        if latest_export_dir:
+            target_batch_dir = latest_export_dir
+            print(f"自动找到最新的批处理导出目录: {target_batch_dir}")
         else:
-            print(f"警告: 指定的形态学配置文件 '{args.config_file}' 未找到，将使用默认操作。")
-    assert morph_ops_list is not None, "形态学操作参数未指定，请使用 --config_file 指定配置文件"
+            print(f"错误: 在 {output_base_dir} 中未找到任何 'batch_slice_export_*' 目录。");
+            sys.exit(1)
+    except ValueError:  # handles empty glob result for max
+        print(f"错误: 在 {output_base_dir} 中未找到任何 'batch_slice_export_*' 目录。")
+        sys.exit(1)
+    except FileNotFoundError as fnf_err:
+        print(f"错误: {fnf_err}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"发生意外错误: {e}")
+        traceback.print_exc()
+        sys.exit(1)
+else:
+    print("错误: 请通过 --batch_dir 或 --specific_batch_dir 指定批处理导出目录。")
+    sys.exit(1)
 
+# --- 确定原始点云文件路径 ---
+original_pcd_for_density = args.pcd_file
+if not original_pcd_for_density:
+    # 尝试从 SliceDataReader 的 global_params 获取
+    try:
+        temp_reader = SliceDataReader(target_batch_dir)
+        temp_reader.read_all()  # Need to read global params
+        if temp_reader.global_params and 'original_point_cloud_source' in temp_reader.global_params:
+            source_name = temp_reader.global_params['original_point_cloud_source']
+            potential_paths = [project_root / "samples" / source_name, Path(source_name)]
+            for p_path in potential_paths:
+                if p_path.exists(): original_pcd_for_density = str(p_path); break
+            if not original_pcd_for_density:
+                print(f"警告: 在导出参数中找到源文件名 '{source_name}' 但无法定位该文件。请通过 --pcd_file 指定。")
+        else:
+            print("警告: 未在导出参数中找到原始点云源信息。请通过 --pcd_file 指定。")
+    except Exception as e_reader:
+        print(f"尝试从导出参数读取原始PCD路径时出错: {e_reader}")
+
+if not original_pcd_for_density or not Path(original_pcd_for_density).exists():
+    print(f"错误: 无法确定或找到原始点云文件 '{original_pcd_for_density}' 用于密度计算。请使用 --pcd_file 参数指定。")
+    sys.exit(1)
+
+# --- 尝试从文件加载形态学操作配置 ---
+morph_ops_list = None
+prob_sens = 2.0
+prob_bias = 1.0
+kernel_sz = 5
+if args.config_file:
+    if Path(args.config_file).exists():
+        try:
+            with open(args.config_file, 'r', encoding='utf-8') as f:
+                op_config = json.load(f)
+            morph_ops_list = op_config.get("probabilistic_morphology_sequence")
+            # Allow overriding default sensitivity, bias, kernel from config
+            prob_sens = op_config.get("default_prob_sensitivity", prob_sens)
+            prob_bias = op_config.get("default_prob_bias", prob_bias)
+            kernel_sz = op_config.get("default_prob_kernel_size", kernel_sz)
+            if DEBUG_MODE: print(f"从配置文件加载形态学操作序列: {morph_ops_list}")
+        except Exception as e_cfg:
+            print(f"警告: 读取或解析形态学配置文件 '{args.config_file}' 失败: {e_cfg}")
+    else:
+        print(f"警告: 指定的形态学配置文件 '{args.config_file}' 未找到，将使用默认操作。")
+assert morph_ops_list is not None, "形态学操作参数未指定，请使用 --config_file 指定配置文件"
+
+def main():
     run_slice_analysis(
         target_batch_dir,
         original_pcd_for_density,
@@ -420,5 +421,5 @@ def main():
         args.pcd_file, args.resolution, args.cmap,
         output_density_matrix_path=args.output_image_path / "density_matrix_and_distribution.png"
     )
-
-main()
+if __name__ =="__main__":
+    main()
